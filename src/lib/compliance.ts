@@ -151,6 +151,25 @@ export class ComplianceEngine {
       });
     });
 
-    return violations;
+    const groupedViolations: Violation[] = [];
+    const seenMap = new Map<string, Violation>();
+
+    violations.forEach(v => {
+      // Create a unique key for grouping. We include the message to ensure 
+      // different types of infractions of the same rule are still distinct 
+      // (e.g. Worked 10hrs vs Worked 12hrs), but identical repeated ones group.
+      const key = `${v.empId}|${v.rule}|${v.article}|${v.message}`;
+      
+      if (seenMap.has(key)) {
+        const existing = seenMap.get(key)!;
+        existing.count = (existing.count || 1) + 1;
+      } else {
+        const violationWithCount = { ...v, count: 1 };
+        seenMap.set(key, violationWithCount);
+        groupedViolations.push(violationWithCount);
+      }
+    });
+
+    return groupedViolations;
   }
 }

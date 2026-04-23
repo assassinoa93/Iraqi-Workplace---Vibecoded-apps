@@ -24,7 +24,8 @@ export interface Employee {
 export interface Station {
   id: string;
   name: string;
-  minHC: number; // Min Headcount required per hour
+  normalMinHC: number; // Min Headcount for normal days
+  peakMinHC: number;   // Min Headcount for peak days
   requiredRoles?: string[]; // Roles allowed to work here
   openingTime: string; // HH:mm
   closingTime: string; // HH:mm
@@ -72,6 +73,7 @@ export interface Config {
   // New Operational Settings
   shopOpeningTime: string; // e.g. "11:00"
   shopClosingTime: string; // e.g. "23:00"
+  peakDays: number[]; // e.g. [5, 6, 7] for Thu, Fri, Sat (1=Sun)
   holidays?: PublicHoliday[]; // Current month's holidays
   // Labor Law Multipliers
   otRateDay: number; // e.g. 1.5
@@ -84,6 +86,7 @@ export interface Violation {
   rule: string;
   article: string;
   message: string;
+  count?: number;
 }
 
 export interface ScheduleEntry {

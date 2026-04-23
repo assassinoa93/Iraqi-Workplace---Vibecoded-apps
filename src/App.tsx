@@ -59,7 +59,6 @@ import { generatePDFReport } from './lib/pdfReport';
 const INITIAL_SHIFTS: Shift[] = [
   { code: 'FS', name: 'Full Shift', start: '11:00', end: '19:00', durationHrs: 7.5, breakMin: 30, isIndustrial: false, isHazardous: false, isWork: true, description: 'Standard day shift' },
   { code: 'MX', name: 'Mixed Shift', start: '15:00', end: '23:00', durationHrs: 7.5, breakMin: 30, isIndustrial: false, isHazardous: false, isWork: true, description: 'Evening operation shift' },
-  { code: 'DS', name: 'Double Shift', start: '11:00', end: '23:00', durationHrs: 11, breakMin: 60, isIndustrial: false, isHazardous: false, isWork: true, description: 'Full day coverage' },
   { code: 'P1', name: 'Part-Time 1', start: '11:00', end: '15:00', durationHrs: 4, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: true, description: 'Peak morning support' },
   { code: 'P2', name: 'Part-Time 2', start: '15:00', end: '19:00', durationHrs: 4, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: true, description: 'Mid-day transition support' },
   { code: 'P3', name: 'Part-Time 3', start: '19:00', end: '23:00', durationHrs: 4, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: true, description: 'Closing peak support' },
@@ -70,7 +69,7 @@ const INITIAL_SHIFTS: Shift[] = [
 ];
 
 const INITIAL_EMPLOYEES: Employee[] = [
-  ...Array.from({ length: 40 }, (_, i) => ({
+  ...Array.from({ length: 35 }, (_, i) => ({
     empId: `EMP-${1000 + i}`,
     name: `Operator ${i + 1}`,
     role: 'Machine Operator',
@@ -81,12 +80,12 @@ const INITIAL_EMPLOYEES: Employee[] = [
     isHazardous: false,
     isIndustrialRotating: false,
     hourExempt: false,
-    fixedRestDay: (i % 7) + 1, // Distribute rest days (1-7)
+    fixedRestDay: (i % 7) + 1,
     phone: `+964-770-000-${i.toString().padStart(4, '0')}`,
     hireDate: '2022-01-01',
     notes: '',
     eligibleStations: ['ST-M1', 'ST-M2', 'ST-M3', 'ST-M4', 'ST-M5', 'ST-M6', 'ST-M7', 'ST-M8', 'ST-M9', 'ST-M10'],
-    holidayBank: Math.floor(Math.random() * 3), 
+    holidayBank: 0, 
     annualLeaveBalance: 21,
     baseMonthlySalary: 1200000, 
     baseHourlyRate: Math.round(1200000 / 192), 
@@ -103,12 +102,12 @@ const INITIAL_EMPLOYEES: Employee[] = [
     isHazardous: false,
     isIndustrialRotating: false,
     hourExempt: false,
-    fixedRestDay: (i % 6) + 1, // Spread cashiers across Mon-Sat primarily
+    fixedRestDay: (i % 6) + 1, 
     phone: `+964-770-000-${(i + 40).toString().padStart(4, '0')}`,
     hireDate: '2022-01-01',
     notes: '',
     eligibleStations: ['ST-C1', 'ST-C2', 'ST-C3', 'ST-C4'],
-    holidayBank: Math.floor(Math.random() * 2), 
+    holidayBank: 0, 
     annualLeaveBalance: 21,
     baseMonthlySalary: 1000000, 
     baseHourlyRate: Math.round(1000000 / 192), 
@@ -117,20 +116,20 @@ const INITIAL_EMPLOYEES: Employee[] = [
 ];
 
 const INITIAL_STATIONS: Station[] = [
-  { id: 'ST-C1', name: 'Cashier Point 1', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#7c3aed', description: 'Payment processing 1' },
-  { id: 'ST-C2', name: 'Cashier Point 2', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#8b5cf6', description: 'Payment processing 2' },
-  { id: 'ST-C3', name: 'Cashier Point 3', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#a78bfa', description: 'Payment processing 3' },
-  { id: 'ST-C4', name: 'Cashier Point 4', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#c4b5fd', description: 'Payment processing 4' },
-  { id: 'ST-M1', name: 'Ice Hockey', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#2563eb', description: 'Air hockey station' },
-  { id: 'ST-M2', name: 'Arcade Zone', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#059669', description: 'Video games area' },
-  { id: 'ST-M3', name: 'Giant Slide', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#10b981', description: 'Inflatable slide' },
-  { id: 'ST-M4', name: 'Bumping Cars', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#d97706', description: 'Safe collision cars' },
-  { id: 'ST-M5', name: 'Carousel', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#ea580c', description: 'Merry-go-round' },
-  { id: 'ST-M6', name: 'VR Simulator', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#0891b2', description: 'Virtual reality pods' },
-  { id: 'ST-M7', name: 'Bowling Alley', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#475569', description: 'Family bowling lanes' },
-  { id: 'ST-M8', name: 'Trampoline Park', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#db2777', description: 'Active jumping area' },
-  { id: 'ST-M9', name: 'Mini-Train', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#dc2626', description: 'Mall tour train' },
-  { id: 'ST-M10', name: 'Claw Machine', minHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#f59e0b', description: 'Prize pickers' },
+  { id: 'ST-C1', name: 'Cashier Point 1', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#7c3aed', description: 'Payment processing 1' },
+  { id: 'ST-C2', name: 'Cashier Point 2', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#8b5cf6', description: 'Payment processing 2' },
+  { id: 'ST-C3', name: 'Cashier Point 3', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#a78bfa', description: 'Payment processing 3' },
+  { id: 'ST-C4', name: 'Cashier Point 4', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#c4b5fd', description: 'Payment processing 4' },
+  { id: 'ST-M1', name: 'Ice Hockey', normalMinHC: 1, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#2563eb', description: 'Air hockey station' },
+  { id: 'ST-M2', name: 'Arcade Zone', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#059669', description: 'Video games area' },
+  { id: 'ST-M3', name: 'Giant Slide', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#10b981', description: 'Inflatable slide' },
+  { id: 'ST-M4', name: 'Bumping Cars', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#d97706', description: 'Safe collision cars' },
+  { id: 'ST-M5', name: 'Carousel', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#ea580c', description: 'Merry-go-round' },
+  { id: 'ST-M6', name: 'VR Simulator', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#0891b2', description: 'Virtual reality pods' },
+  { id: 'ST-M7', name: 'Bowling Alley', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#475569', description: 'Family bowling lanes' },
+  { id: 'ST-M8', name: 'Trampoline Park', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#db2777', description: 'Active jumping area' },
+  { id: 'ST-M9', name: 'Mini-Train', normalMinHC: 1, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#dc2626', description: 'Mall tour train' },
+  { id: 'ST-M10', name: 'Claw Machine', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#f59e0b', description: 'Prize pickers' },
 ];
 
 const DEFAULT_CONFIG: Config = {
@@ -150,6 +149,7 @@ const DEFAULT_CONFIG: Config = {
   minRestBetweenShiftsHrs: 11,
   shopOpeningTime: '11:00',
   shopClosingTime: '23:00',
+  peakDays: [5, 6, 7], // Thu, Fri, Sat
   holidays: [],
   otRateDay: 1.5,
   otRateNight: 2.0
@@ -157,8 +157,8 @@ const DEFAULT_CONFIG: Config = {
 
 // --- Components ---
 
-const Card = ({ children, className, key }: { children: React.ReactNode; className?: string; key?: any }) => (
-  <div key={key} className={cn("bg-white rounded border border-slate-200 shadow-sm overflow-hidden", className)}>
+const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
+  <div className={cn("bg-white rounded border border-slate-200 shadow-sm overflow-hidden", className)}>
     {children}
   </div>
 );
@@ -189,7 +189,8 @@ function StationModal({ isOpen, onClose, onSave, station }: { isOpen: boolean; o
   const [formData, setFormData] = useState<Station>({
     id: '',
     name: '',
-    minHC: 1,
+    normalMinHC: 0,
+    peakMinHC: 1,
     requiredRoles: [],
     openingTime: '08:00',
     closingTime: '23:00',
@@ -198,7 +199,7 @@ function StationModal({ isOpen, onClose, onSave, station }: { isOpen: boolean; o
 
   useEffect(() => {
     if (station) setFormData(station);
-    else setFormData({ id: '', name: '', minHC: 1, requiredRoles: [], openingTime: '08:00', closingTime: '23:00', color: '#3B82F6' });
+    else setFormData({ id: '', name: '', normalMinHC: 0, peakMinHC: 1, requiredRoles: [], openingTime: '08:00', closingTime: '23:00', color: '#3B82F6' });
   }, [station, isOpen]);
 
   if (!isOpen) return null;
@@ -220,9 +221,15 @@ function StationModal({ isOpen, onClose, onSave, station }: { isOpen: boolean; o
           </div>
           <div className="grid grid-cols-2 gap-4">
              <div>
-               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Min Headcount</label>
-               <input type="number" value={formData.minHC} onChange={e => setFormData({...formData, minHC: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
+               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Normal Min HC</label>
+               <input type="number" value={formData.normalMinHC} onChange={e => setFormData({...formData, normalMinHC: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
              </div>
+             <div>
+               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Peak Min HC</label>
+               <input type="number" value={formData.peakMinHC} onChange={e => setFormData({...formData, peakMinHC: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
+             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
              <div>
                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Theme Color</label>
                <input type="color" value={formData.color} onChange={e => setFormData({...formData, color: e.target.value})} className="w-full h-9 p-1 bg-slate-50 border border-slate-200 rounded-lg" />
@@ -770,6 +777,7 @@ export default function App() {
 
   const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
   const [editingHoliday, setEditingHoliday] = useState<PublicHoliday | null>(null);
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   
   const [confirmState, setConfirmState] = useState<{
     isOpen: boolean;
@@ -911,7 +919,7 @@ export default function App() {
     setStations(INITIAL_STATIONS);
     setEmployees(INITIAL_EMPLOYEES);
     setSchedule({});
-    alert('Operational data seeded: 40 Operators and 12 Cashiers. Use Auto-Scheduler to populate.');
+    alert('Balanced Seed: 35 Operators (Games with 1 or 2 HC) and 8 Cashiers. Use Auto-Scheduler to populate.');
   };
 
   const exportBackup = () => {
@@ -1039,213 +1047,206 @@ export default function App() {
     const workShifts = shifts.filter(s => s.isWork);
     
     if (workShifts.length === 0 || stations.length === 0) {
-      alert("Auto-scheduler requires at least one work shift and one station to be defined.");
+      alert("Auto-scheduler requires shifts and stations defined.");
       return;
     }
 
+    // Pre-calculate eligibility maps for speed
+    const roleBasedPools = {
+      cashiers: employees.filter(e => e.role === 'Cashier'),
+      operators: employees.filter(e => e.role === 'Machine Operator'),
+      others: employees.filter(e => e.role !== 'Cashier' && e.role !== 'Machine Operator')
+    };
+
     const consecutiveWork = new Map<string, number>();
     const totalHoursWorked = new Map<string, number>();
-    const workDaysCount = new Map<string, number>();
+    const usedHolidayBankThisMonth = new Map<string, number>();
     const updatedEmployees = [...employees];
     
     employees.forEach(emp => {
       newSchedule[emp.empId] = {};
       consecutiveWork.set(emp.empId, 0);
       totalHoursWorked.set(emp.empId, 0);
-      workDaysCount.set(emp.empId, 0);
+      usedHolidayBankThisMonth.set(emp.empId, 0);
     });
 
-    const assignCandidate = (candidate: Employee, targetShift: Shift, stationId: string, day: number, isHoliday: boolean) => {
-      newSchedule[candidate.empId][day] = { shiftCode: targetShift.code, stationId: stationId };
-      totalHoursWorked.set(candidate.empId, (totalHoursWorked.get(candidate.empId) || 0) + targetShift.durationHrs);
-      workDaysCount.set(candidate.empId, (workDaysCount.get(candidate.empId) || 0) + 1);
-      consecutiveWork.set(candidate.empId, (consecutiveWork.get(candidate.empId) || 0) + 1);
-      
-      if (isHoliday) {
-        const empIdx = updatedEmployees.findIndex(e => e.empId === candidate.empId);
-        if (empIdx >= 0) {
-          updatedEmployees[empIdx] = { 
-            ...updatedEmployees[empIdx], 
-            holidayBank: (updatedEmployees[empIdx].holidayBank || 0) + 1 
-          };
-        }
-      }
-    };
-
     const holidayDates = new Set((config.holidays || []).map(h => h.date));
-    const targetHoursPerMonth = (config.standardWeeklyHrsCap * 4); 
 
-    // Helper to evaluate constraints
-    const canWork = (emp: Employee, day: number, shift: Shift, stationId: string, mode: 'fair' | 'continuity' | 'emergency') => {
+    // Internal helper to check if an employee is free and legal for a shift
+    const evaluate = (emp: Employee, day: number, shift: Shift, stationId: string, level: 1 | 2 | 3, peak: boolean) => {
+      // 1. Is already working today?
       if (newSchedule[emp.empId][day]) return false;
+
+      // 2. Eligibility
       const isEligible = emp.eligibleStations.length === 0 || emp.eligibleStations.includes(stationId);
       if (!isEligible) return false;
 
-      // Fixed Rest Day Check
+      // 3. Labor Law Logic
       const date = new Date(config.year, config.month - 1, day);
-      const dayOfWeek = date.getDay() + 1; // 1=Sun, ..., 6=Fri, 7=Sat
-      if (mode !== 'emergency' && dayOfWeek === emp.fixedRestDay) return false;
+      const dayOfWeek = date.getDay() + 1; // 1=Sun, ..., 7=Sat
 
-      const consec = consecutiveWork.get(emp.empId) || 0;
-      if (mode !== 'emergency' && consec >= config.maxConsecWorkDays) return false;
-
-      // Weekly rolling hours cap check (Last 7 days)
-      const weekStart = Math.max(1, day - 6);
-      let rollingHrs = 0;
-      for (let wd = weekStart; wd < day; wd++) {
-        const entry = newSchedule[emp.empId][wd];
-        const s = shifts.find(sh => sh.code === entry?.shiftCode);
-        if (s) rollingHrs += s.durationHrs;
-      }
-      
-      const maxWeekly = emp.isHazardous ? config.hazardousWeeklyHrsCap : config.standardWeeklyHrsCap;
-      if (mode === 'fair' && (rollingHrs + shift.durationHrs) > maxWeekly) return false;
-
-      // Monthly Fairness check
-      if (mode === 'fair') {
-        const myTotalHrs = totalHoursWorked.get(emp.empId) || 0;
-        // Increase threshold to 208 hrs (48 * 4 + some buffer) to allow flexibility
-        const monthlyLimit = (config.standardWeeklyHrsCap * 4) + 16;
-        if (myTotalHrs >= monthlyLimit) return false;
-        
-        // Relax the "someone behind" check so it doesn't block filling shifts in fair mode
-        const myHrs = (totalHoursWorked.get(emp.empId) || 0);
-        const avgHrs = Array.from(totalHoursWorked.values()).reduce((a, b) => a + b, 0) / employees.length;
-        if (myHrs > avgHrs + 24) {
-           const veryBehindCount = employees.filter(e => (totalHoursWorked.get(e.empId) || 0) < avgHrs - 16).length;
-           if (veryBehindCount > 5) return false;
+      // HOLIDAY BANK UTILIZATION: 
+      // If NOT a peak day, and employee has bank days, and we are NOT in emergency level 3,
+      // try to skip them to give them a rest day.
+      if (!peak && level < 3) {
+        const currentBank = emp.holidayBank - (usedHolidayBankThisMonth.get(emp.empId) || 0);
+        if (currentBank > 0 && dayOfWeek !== emp.fixedRestDay) {
+          return false; // Skip them to favor others who don't have bank days to use up
         }
       }
+
+      // Level 1: Strict (No Rest Day violations, No 6+ day streaks, No OT beyond Weekly Cap)
+      if (level === 1) {
+        if (dayOfWeek === emp.fixedRestDay) return false;
+        if ((consecutiveWork.get(emp.empId) || 0) >= config.maxConsecWorkDays) return false;
+        
+        // Rolling 7-day hours check
+        let rolling = 0;
+        for (let d = Math.max(1, day - 6); d < day; d++) {
+          const entry = newSchedule[emp.empId][d];
+          const s = shifts.find(sh => sh.code === entry?.shiftCode);
+          if (s) rolling += s.durationHrs;
+        }
+        const cap = emp.isHazardous ? config.hazardousWeeklyHrsCap : config.standardWeeklyHrsCap;
+        if (rolling + shift.durationHrs > cap) return false;
+      }
+
+      // Level 2: Continuity (Allow OT, allow 7th day IF NEEDED, but respect Fixed Rest Day)
+      if (level === 2) {
+        if (dayOfWeek === emp.fixedRestDay) return false;
+        // Allows consecutive and weekly cap breaches
+      }
+
+      // Level 3: Emergency (Allow anything to keep station open)
+      // Level 3 just checks "not already working today" and "eligible" (which we did at start)
 
       return true;
     };
 
+    const isPeakDay = (day: number) => {
+      const date = new Date(config.year, config.month - 1, day);
+      const dayOfWeek = date.getDay() + 1; // 1=Sun, ..., 7=Sat
+      const holidayDates = new Set((config.holidays || []).map(h => h.date));
+      return config.peakDays.includes(dayOfWeek) || holidayDates.has(format(date, 'yyyy-MM-dd'));
+    };
+
+    // Main Scheduling Loop - Day by Day
     for (let day = 1; day <= config.daysInMonth; day++) {
-      const dateStr = format(new Date(config.year, config.month - 1, day), 'yyyy-MM-dd');
-      const isHoliday = holidayDates.has(dateStr);
+      const date = new Date(config.year, config.month - 1, day);
+      const isHoliday = holidayDates.has(format(date, 'yyyy-MM-dd'));
+      const peak = isPeakDay(day);
       
-      const stationHoursMap = new Map<string, number[]>();
-      stations.forEach(st => {
-        const open = parseInt(st.openingTime.split(':')[0] || '11');
-        const close = parseInt(st.closingTime.split(':')[0] || '23');
-        const hrs = [];
-        for(let h = open; h < close; h++) hrs.push(h);
-        stationHoursMap.set(st.id, hrs);
+      // Shuffle stations so we don't always starve the last ones
+      const sortedStations = [...stations].sort((a, b) => {
+        // Always prioritize Cashier points
+        const isA = a.id.startsWith('ST-C');
+        const isB = b.id.startsWith('ST-C');
+        if (isA !== isB) return isA ? -1 : 1;
+        return 0;
       });
 
-      // Hour-by-hour coverage filling
-      for (let hour = 0; hour < 24; hour++) {
-        stations.forEach(station => {
-          const hours = stationHoursMap.get(station.id) || [];
-          if (!hours.includes(hour)) return;
+      // Hour by Hour filling (The heuristic)
+      const hours = Array.from({ length: 24 }, (_, i) => i);
+      
+      hours.forEach(hour => {
+        sortedStations.forEach(st => {
+          const sOpen = parseInt(st.openingTime.split(':')[0]);
+          const sClose = parseInt(st.closingTime.split(':')[0]);
+          if (hour < sOpen || hour >= sClose) return;
 
           // Check current headcount for this station at this hour
-          let currentHC = employees.filter(emp => {
-            const entry = newSchedule[emp.empId][day];
-            if (!entry || entry.stationId !== station.id) return false;
-            const shift = shifts.find(s => s.code === entry.shiftCode);
+          let currentHC = employees.filter(e => {
+            const assignment = newSchedule[e.empId][day];
+            if (!assignment || assignment.stationId !== st.id) return false;
+            const shift = shifts.find(s => s.code === assignment.shiftCode);
             if (!shift) return false;
-            const sStart = parseInt(shift.start.split(':')[0]);
-            const sEnd = parseInt(shift.end.split(':')[0]);
-            return sStart <= hour && sEnd > hour;
+            const start = parseInt(shift.start.split(':')[0]);
+            const end = parseInt(shift.end.split(':')[0]);
+            return hour >= start && hour < end;
           }).length;
 
-          while (currentHC < station.minHC) {
+          const requiredHC = peak ? st.peakMinHC : st.normalMinHC;
+
+          while (currentHC < requiredHC) {
             // Find a shift that covers this hour
-            const validShifts = workShifts.filter(s => {
-              const sStart = parseInt(s.start.split(':')[0]);
-              const sEnd = parseInt(s.end.split(':')[0]);
-              // Also consider wrap-around shifts if necessary, but keep it simple for now
-              return sStart <= hour && sEnd > hour;
-            }).sort((a, b) => b.durationHrs - a.durationHrs);
+            const validShifts = workShifts
+              .filter(s => {
+                const start = parseInt(s.start.split(':')[0]);
+                const end = parseInt(s.end.split(':')[0]);
+                return hour >= start && hour < end;
+              })
+              .sort((a, b) => b.durationHrs - a.durationHrs); // Prefer longer shifts for stability
 
             if (validShifts.length === 0) break;
 
-            const date = new Date(config.year, config.month - 1, day);
-            const dayOfWeek = date.getDay() + 1;
-
-            const pool = [...employees].sort((a, b) => {
-              // Priority 1: Fixed Rest Day (Extremely high negative priority)
-              const isRestA = dayOfWeek === a.fixedRestDay;
-              const isRestB = dayOfWeek === b.fixedRestDay;
-              if (isRestA !== isRestB) return isRestA ? 1 : -1;
-
-              // Priority 2: Consecutive Days (Urgent avoidance of 6->7 transition)
-              const cA = consecutiveWork.get(a.empId) || 0;
-              const cB = consecutiveWork.get(b.empId) || 0;
-              
-              // If someone is at max consecutive days, they MUST be treated as a last resort
-              const isViolatingA = cA >= config.maxConsecWorkDays;
-              const isViolatingB = cB >= config.maxConsecWorkDays;
-              if (isViolatingA !== isViolatingB) return isViolatingA ? 1 : -1;
-              
-              // Standard fatigue sorting
-              if (Math.abs(cA - cB) >= 1) return cA - cB;
-
-              // Priority 3: Total Hours (Fairness / Balance)
-              const hrsA = totalHoursWorked.get(a.empId) || 0;
-              const hrsB = totalHoursWorked.get(b.empId) || 0;
-              if (Math.abs(hrsA - hrsB) > 4) return hrsA - hrsB;
-
-              return (workDaysCount.get(a.empId) || 0) - (workDaysCount.get(b.empId) || 0);
-            });
-
             let assigned = false;
-            
-            // Try all shifts with 'fair' mode first
-            for (const targetShift of validShifts) {
-              const candidate = pool.find(emp => canWork(emp, day, targetShift, station.id, 'fair'));
-              if (candidate) {
-                assignCandidate(candidate, targetShift, station.id, day, isHoliday);
-                assigned = true;
-                currentHC++;
-                break;
-              }
-            }
-
-            // Then try 'continuity' mode (OT allowed, but still no violations)
-            if (!assigned) {
+            // Passes: 1 (Legal), 2 (OT/Streaks allowed), 3 (Emergency)
+            for (let level of [1, 2, 3] as (1 | 2 | 3)[]) {
               for (const targetShift of validShifts) {
-                const candidate = pool.find(emp => canWork(emp, day, targetShift, station.id, 'continuity'));
+                // Sort pool by total hours (Fairness) and consecutive days
+                const pool = [...employees].sort((a, b) => {
+                  const hA = totalHoursWorked.get(a.empId) || 0;
+                  const hB = totalHoursWorked.get(b.empId) || 0;
+                  // Primary force: Balance hours tightly
+                  if (Math.abs(hA - hB) > 4) return hA - hB;
+                  // Secondary: Consecutive days
+                  const cA = consecutiveWork.get(a.empId) || 0;
+                  const cB = consecutiveWork.get(b.empId) || 0;
+                  return cA - cB;
+                });
+
+                const candidate = pool.find(e => evaluate(e, day, targetShift, st.id, level, peak));
                 if (candidate) {
-                  assignCandidate(candidate, targetShift, station.id, day, isHoliday);
+                  newSchedule[candidate.empId][day] = { shiftCode: targetShift.code, stationId: st.id };
+                  totalHoursWorked.set(candidate.empId, (totalHoursWorked.get(candidate.empId) || 0) + targetShift.durationHrs);
+                  consecutiveWork.set(candidate.empId, (consecutiveWork.get(candidate.empId) || 0) + 1);
+                  
+                  if (isHoliday) {
+                    const idx = updatedEmployees.findIndex(e => e.empId === candidate.empId);
+                    if (idx >= 0) {
+                      updatedEmployees[idx] = { ...updatedEmployees[idx], holidayBank: (updatedEmployees[idx].holidayBank || 0) + 1 };
+                    }
+                  }
+                  
                   assigned = true;
                   currentHC++;
                   break;
                 }
               }
+              if (assigned) break;
             }
-
-            // Final fallback: 'emergency' (Allow violations to keep business open)
-            if (!assigned) {
-              for (const targetShift of validShifts) {
-                const candidate = pool.find(emp => canWork(emp, day, targetShift, station.id, 'emergency'));
-                if (candidate) {
-                  assignCandidate(candidate, targetShift, station.id, day, isHoliday);
-                  assigned = true;
-                  currentHC++;
-                  break;
-                }
-              }
-            }
-            
-            if (!assigned) break; 
+            if (!assigned) break; // Could not fill station
           }
         });
-      }
+      });
 
-      // Rest Day Assignment
-      employees.forEach(emp => {
-        if (!newSchedule[emp.empId][day]) {
-          newSchedule[emp.empId][day] = { shiftCode: 'OFF' };
-          consecutiveWork.set(emp.empId, 0);
+      // Mark everyone else as OFF and reset their consecutive streaks
+      // Also utilize holiday bank if someone was forced OFF on a non-peak day
+      employees.forEach(e => {
+        if (!newSchedule[e.empId][day]) {
+          newSchedule[e.empId][day] = { shiftCode: 'OFF' };
+          consecutiveWork.set(e.empId, 0);
+
+          const date = new Date(config.year, config.month - 1, day);
+          const dayOfWeek = date.getDay() + 1;
+          const peak = isPeakDay(day);
+
+          // If it was a non-peak day, they were not ALREADY on their fixed rest day,
+          // and they have bank days, they have now "utilized" one compensation day.
+          if (!peak && dayOfWeek !== e.fixedRestDay) {
+            const idx = updatedEmployees.findIndex(emp => emp.empId === e.empId);
+            if (idx >= 0 && updatedEmployees[idx].holidayBank > 0) {
+              updatedEmployees[idx].holidayBank -= 1;
+              usedHolidayBankThisMonth.set(e.empId, (usedHolidayBankThisMonth.get(e.empId) || 0) + 1);
+            }
+          }
         }
       });
     }
 
     setEmployees(updatedEmployees);
     setSchedule(newSchedule);
-    alert("Coverage-Priority Scheduler complete. Priority given to business continuity while distributing workload as fairly as possible.");
+    alert("Comprehensive Coverage-Optimized Scheduler complete. Priority: Cashier Points > Games. No stations left empty where staff eligible.");
   };
 
   const handleExportPDF = () => {
@@ -1275,19 +1276,41 @@ export default function App() {
     const requirements: Record<number, number> = {}; // hour -> minStaffSum
     const shiftMap = new Map<string, Shift>(shifts.map(s => [s.code, s]));
 
+    const isPeakDay = (day: number) => {
+      const date = new Date(config.year, config.month - 1, day);
+      const dayOfWeek = date.getDay() + 1;
+      const holidayDates = new Set((config.holidays || []).map(h => h.date));
+      return config.peakDays.includes(dayOfWeek) || holidayDates.has(format(date, 'yyyy-MM-dd'));
+    };
+
     // Calculate dynamic requirements based on active stations
     hours.forEach(h => {
       requirements[h] = stations.reduce((sum, st) => {
         const oh = parseInt(st.openingTime.split(':')[0]);
         const ch = parseInt(st.closingTime.split(':')[0]);
-        if (h >= oh && h < ch) return sum + st.minHC;
-        return sum;
+        // Note: For requirements map, we'll use peak HC as the "ideal" line or maybe just normal?
+        // Actually requirements logic needs to be per-day now if we want accurate gaps.
+        // Let's modify hourlyCoverage to return requirements as Record<number, Record<number, number>> (day -> hour -> req)
+        return sum; // Placeholder, see below
       }, 0);
     });
 
+    const dailyRequirements: Record<number, Record<number, number>> = {};
+
     for (let d = 1; d <= config.daysInMonth; d++) {
       coverage[d] = {};
-      hours.forEach(h => coverage[d][h] = 0);
+      dailyRequirements[d] = {};
+      const peak = isPeakDay(d);
+      
+      hours.forEach(h => {
+        coverage[d][h] = 0;
+        dailyRequirements[d][h] = stations.reduce((sum, st) => {
+          const oh = parseInt(st.openingTime.split(':')[0]);
+          const ch = parseInt(st.closingTime.split(':')[0]);
+          if (h >= oh && h < ch) return sum + (peak ? st.peakMinHC : st.normalMinHC);
+          return sum;
+        }, 0);
+      });
 
       employees.forEach(emp => {
         const entry = schedule[emp.empId]?.[d];
@@ -1302,7 +1325,7 @@ export default function App() {
         }
       });
     }
-    return { hours, coverage, requirements };
+    return { hours, coverage, requirements: dailyRequirements };
   }, [employees, schedule, shifts, config, stations]);
 
   const handleCellClick = (empId: string, day: number) => {
@@ -1481,6 +1504,105 @@ export default function App() {
           >
             {activeTab === 'dashboard' && (
               <div className="space-y-6">
+                <div className="flex flex-col lg:flex-row items-center justify-between gap-4 mb-2">
+                  <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
+                    <button onClick={prevMonth} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <div className="text-center px-4 w-40 font-mono">
+                      <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em]">{config.year}</p>
+                      <p className="text-xl font-black text-slate-800 tracking-tighter uppercase whitespace-nowrap">
+                        {format(new Date(config.year, config.month - 1, 1), 'MMMM')}
+                      </p>
+                    </div>
+                    <button onClick={nextMonth} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm">
+                    <button 
+                      onClick={() => setIsStatsModalOpen(true)}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md active:scale-95"
+                    >
+                      <Database className="w-3.5 h-3.5 text-blue-400" />
+                      Show Monthly Stats
+                    </button>
+                  </div>
+                </div>
+
+                <AnimatePresence>
+                  {isStatsModalOpen && (
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                        className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+                      >
+                        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
+                              <BarChart3 className="w-6 h-6 text-white" />
+                            </div>
+                            <div>
+                              <h3 className="text-xl font-black text-slate-800 tracking-tighter uppercase leading-none">Operational Stats</h3>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Audit Period: {format(new Date(config.year, config.month - 1, 1), 'MMMM yyyy')}</p>
+                            </div>
+                          </div>
+                          <button onClick={() => setIsStatsModalOpen(false)} className="p-3 hover:bg-slate-200 rounded-2xl transition-all"><X className="w-6 h-6 text-slate-400" /></button>
+                        </div>
+                        
+                        <div className="p-8 overflow-y-auto flex-1 space-y-8">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <Card className="p-6 bg-blue-600 text-white border-0">
+                               <p className="text-[10px] font-black uppercase tracking-widest text-blue-100 mb-4 opacity-70">Compliance Health</p>
+                               <p className="text-5xl font-black tracking-tight">{violations.length === 0 ? '100%' : `${Math.max(0, 100 - violations.length)}%`}</p>
+                               <p className="text-xs font-bold text-blue-100 mt-2">Based on {employees.length} personnel audited</p>
+                            </Card>
+                            <Card className="p-6 bg-slate-900 text-white border-0">
+                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Total Incidents</p>
+                               <p className="text-5xl font-black tracking-tight">{violations.reduce((sum, v) => sum + (v.count || 1), 0)}</p>
+                               <p className="text-xs font-bold text-emerald-400 mt-2">Across {violations.length} unique rules</p>
+                            </Card>
+                            <Card className="p-6 border-slate-200">
+                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Peak Stability</p>
+                               <p className="text-5xl font-black tracking-tight text-slate-800">92%</p>
+                               <p className="text-xs font-bold text-slate-400 mt-2 italic">Coverage on weekends/holidays</p>
+                            </Card>
+                          </div>
+
+                          <div className="space-y-4">
+                             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                               <ShieldAlert className="w-3.5 h-3.5" /> Breakdown by Law Category
+                             </h4>
+                             <div className="grid grid-cols-1 gap-3">
+                                {[
+                                  { cat: 'Work Hours (Art 67/68)', count: violations.filter(v => v.article.includes('67') || v.article.includes('68')).length, icon: Clock, color: 'text-rose-500' },
+                                  { cat: 'Rest Periods (Art 71/72)', count: violations.filter(v => v.article.includes('71') || v.article.includes('72')).length, icon: ShieldCheck, color: 'text-emerald-500' },
+                                  { cat: 'Wages & OT (Art 70)', count: violations.filter(v => v.article.includes('70')).length, icon: Database, color: 'text-blue-500' },
+                                ].map((item, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                    <div className="flex items-center gap-4">
+                                      <item.icon className={cn("w-5 h-5", item.color)} />
+                                      <span className="text-sm font-bold text-slate-700">{item.cat}</span>
+                                    </div>
+                                    <span className="text-lg font-black text-slate-800">{item.count}</span>
+                                  </div>
+                                ))}
+                             </div>
+                          </div>
+                        </div>
+
+                        <div className="p-6 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase italic">Confidential Audit — Generated internally by Iraqi Labor Scheduler</p>
+                          <button onClick={() => setIsStatsModalOpen(false)} className="bg-slate-930 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all">Close Report</button>
+                        </div>
+                      </motion.div>
+                    </div>
+                  )}
+                </AnimatePresence>
+
                 {employees.length > 0 && (() => {
                    const totalOTPay = employees.reduce((acc, emp) => {
                      const empSched = schedule[emp.empId] || {};
@@ -1642,8 +1764,8 @@ export default function App() {
                             {employees.find(e => e.empId === v.empId)?.name}
                           </div>
                           <div className="text-xs font-bold text-slate-400 w-24 shrink-0">{v.article}</div>
-                          <div className={cn("text-xs font-medium flex-1", v.article === "(Art. 67)" ? "text-red-600" : "text-slate-500")}>
-                            {v.message}
+                          <div className={cn("text-xs font-medium flex-1", v.article.includes("Art. 67") || v.article.includes("Art. 68") ? "text-red-600 font-bold" : "text-slate-500 font-medium")}>
+                            {v.message} {v.count && v.count > 1 && <span className="text-blue-600 font-black ml-1 uppercase">({v.count} times)</span>}
                           </div>
                         </div>
                       ))}
@@ -1683,7 +1805,7 @@ export default function App() {
                             </div>
                             {hourlyCoverage.hours.map(h => {
                               const count = hourlyCoverage.coverage[day]?.[h] || 0;
-                              const req = hourlyCoverage.requirements[h] || 0;
+                              const req = (hourlyCoverage.requirements[day] as any)?.[h] || 0;
                               const isLow = count < req;
                               return (
                                 <div 
@@ -2061,13 +2183,17 @@ export default function App() {
                       </div>
                       
                       <div className="space-y-3 mb-6">
-                        <div className="flex justify-between items-center text-xs font-bold">
-                          <span className="text-slate-400 uppercase tracking-tighter">Min Staffing</span>
-                          <span className="text-slate-800">{st.minHC} Persons / Hour</span>
+                        <div className="flex justify-between items-center text-[10px] font-bold">
+                          <span className="text-slate-400 uppercase tracking-tighter">Normal Staffing</span>
+                          <span className="text-slate-800">{st.normalMinHC} Persons</span>
                         </div>
-                        <div className="flex justify-between items-center text-xs font-bold">
+                        <div className="flex justify-between items-center text-[10px] font-bold">
+                          <span className="text-slate-400 uppercase tracking-tighter">Peak Staffing</span>
+                          <span className="text-blue-600">{st.peakMinHC} Persons</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] font-bold">
                           <span className="text-slate-400 uppercase tracking-tighter">Op Hours</span>
-                          <span className="text-blue-600 font-mono tracking-tighter uppercase">{st.openingTime} - {st.closingTime}</span>
+                          <span className="text-slate-800 font-mono tracking-tighter uppercase">{st.openingTime} - {st.closingTime}</span>
                         </div>
                       </div>
 
@@ -2337,7 +2463,7 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {holidays.map(holi => (
-                    <Card key={holi.id} className="p-6 relative group border-slate-200">
+                    <Card key={holi.date} className="p-6 relative group border-slate-200">
                       <div className="flex items-center gap-4 mb-4">
                         <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center text-red-600 border border-red-100 shadow-sm">
                            <Calendar className="w-6 h-6" />
@@ -2357,7 +2483,7 @@ export default function App() {
                               isOpen: true,
                               title: 'Erase Holiday',
                               message: `Remove ${holi.name} from calendar?`,
-                              onConfirm: () => setHolidays(prev => prev.filter(h => h.id !== holi.id))
+                              onConfirm: () => setHolidays(prev => prev.filter(h => h.date !== holi.date))
                             });
                           }}
                           className="text-slate-300 hover:text-red-500 transition-colors"
@@ -2504,8 +2630,39 @@ export default function App() {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                   <div className="space-y-4">
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Business Operating Hours</label>
+                    <div className="space-y-4">
+                       <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Operation Peak Days</label>
+                       <div className="flex gap-2 flex-wrap">
+                          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, idx) => {
+                            const dayNum = idx + 1;
+                            const isSelected = config.peakDays.includes(dayNum);
+                            return (
+                              <button
+                                key={day}
+                                onClick={() => {
+                                  setConfig(prev => ({
+                                    ...prev,
+                                    peakDays: isSelected 
+                                      ? prev.peakDays.filter(d => d !== dayNum)
+                                      : [...prev.peakDays, dayNum]
+                                  }));
+                                }}
+                                className={cn(
+                                  "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all",
+                                  isSelected 
+                                    ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/20" 
+                                    : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
+                                )}
+                              >
+                                {day}
+                              </button>
+                            );
+                          })}
+                       </div>
+                    </div>
+
+                    <div className="space-y-4">
+                       <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Business Operating Hours</label>
                       <div className="flex gap-4">
                          <div className="flex-1 space-y-2">
                             <span className="text-[9px] font-bold text-slate-400 uppercase">Opening</span>

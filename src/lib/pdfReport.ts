@@ -67,10 +67,10 @@ export const generatePDFReport = (
     const emp = employees.find(e => e.empId === v.empId);
     return [
       emp?.name || v.empId,
-      `Day ${v.day}`,
+      v.count && v.count > 1 ? `Multiple / x${v.count}` : `Day ${v.day}`,
       v.rule,
       v.article,
-      v.message
+      v.count && v.count > 1 ? `${v.message} (${v.count} occurrences)` : v.message
     ];
   });
 
@@ -155,7 +155,7 @@ export const generatePDFReport = (
       });
     }).length;
 
-    return [st.name, `${st.minHC} Staff/Hr`, `${assignedCount} Total Personnel`];
+    return [st.name, `Normal: ${st.normalMinHC} / Peak: ${st.peakMinHC}`, `${assignedCount} Total Personnel`];
   });
 
   autoTable(doc, {
