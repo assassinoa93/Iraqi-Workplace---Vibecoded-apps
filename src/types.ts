@@ -14,7 +14,8 @@ export interface Employee {
   hireDate: string;
   notes: string;
   eligibleStations: string[]; // IDs of stations
-  holidayCredits: number; // Balance of extra off days earned (Days)
+  holidayBank: number; // Balance of extra off days earned from working holidays (Days)
+  annualLeaveBalance: number; // Regular vacations balance (Days)
   baseMonthlySalary: number; // Fixed monthly wage
   baseHourlyRate: number; // Rate specifically for OT calculations
   overtimeHours: number; // Cumulative overtime hours for the month
@@ -72,6 +73,9 @@ export interface Config {
   shopOpeningTime: string; // e.g. "11:00"
   shopClosingTime: string; // e.g. "23:00"
   holidays?: PublicHoliday[]; // Current month's holidays
+  // Labor Law Multipliers
+  otRateDay: number; // e.g. 1.5
+  otRateNight: number; // e.g. 2.0
 }
 
 export interface Violation {

@@ -95,29 +95,45 @@ export const generatePDFReport = (
   }) || []);
 
   const performanceData = employees.map(emp => {
-    const totalHrsCount = Object.values(schedule[emp.empId] || {}).reduce((sum, entry) => {
+    const empSched = schedule[emp.empId] || {};
+    let totalHrsCount = 0;
+    let holidayOTHours = 0;
+    
+    Object.entries(empSched).forEach(([day, entry]) => {
+      const dateStr = format(new Date(config.year, config.month - 1, parseInt(day)), 'yyyy-MM-dd');
+      const isHoli = !!config.holidays?.find(h => h.date === dateStr);
       const shift = shiftMap.get((entry as any)?.shiftCode || '');
-      return sum + (shift?.durationHrs || 0);
-    }, 0);
-    const basePay = emp.baseMonthlySalary || 1500000;
-    const otHours = Math.max(0, totalHrsCount - (48 * 4)); 
-    const otPay = otHours * (emp.baseHourlyRate || 7500) * 1.5;
-    const isOtEligible = totalHrsCount > (48 * 4);
+      if (shift?.isWork) {
+        totalHrsCount += shift.durationHrs;
+        if (isHoli) holidayOTHours += shift.durationHrs;
+      }
+    });
+
+    const baseMonthly = emp.baseMonthlySalary || 1500000;
+    const baseHourRate = baseMonthly / 192;
+    const cap = 48 * 4;
+    const stdOTHours = Math.max(0, totalHrsCount - cap - holidayOTHours);
+    
+    const stdOTPay = stdOTHours * baseHourRate * (config.otRateDay || 1.5);
+    const holiOTPay = holidayOTHours * baseHourRate * (config.otRateNight || 2.0);
+    const totalOTPay = stdOTPay + holiOTPay;
+    const netPay = baseMonthly + totalOTPay;
 
     return [
       emp.name,
       emp.role,
       `${totalHrsCount.toFixed(1)}h`,
-      `${(emp.baseMonthlySalary || 1500000).toLocaleString()}`,
-      isOtEligible ? "YES" : "NO",
-      `${otPay.toLocaleString()} IQD`,
-      `${(basePay + otPay).toLocaleString()} IQD`,
-      emp.holidayCredits || 0
+      `${baseMonthly.toLocaleString()}`,
+      totalHrsCount > cap ? "YES" : "NO",
+      `${Math.round(totalOTPay).toLocaleString()} IQD`,
+      `${Math.round(netPay).toLocaleString()} IQD`,
+      emp.holidayBank || 0,
+      emp.annualLeaveBalance || 0
     ];
   });
 
   autoTable(doc, {
-    head: [['Personnel', 'Role', 'Hours', 'Salary', 'OT?', 'OT Pay', 'Net Pay', 'Credits']],
+    head: [['Personnel', 'Role', 'Hours', 'Salary', 'OT?', 'OT Pay', 'Net Pay', 'Bank', 'AL']],
     body: performanceData,
     startY: auditY + 5,
     theme: 'grid',

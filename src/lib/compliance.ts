@@ -124,7 +124,7 @@ export class ComplianceEngine {
             day: d.day,
             rule: "Consecutive work days",
             article: "(Art. 71 §5, 72)",
-            message: `Student worked ${consecutive} consecutive days. Max allowed is ${config.maxConsecWorkDays}.`
+            message: `Personnel worked ${consecutive} consecutive days. Max allowed is ${config.maxConsecWorkDays}.`
           });
         }
       });
