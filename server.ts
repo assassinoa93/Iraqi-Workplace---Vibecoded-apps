@@ -50,6 +50,30 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // API: Reset Data (Factory Reset)
+  app.post("/api/reset", (req, res) => {
+    try {
+      if (fs.existsSync(DATA_DIR)) {
+        const files = fs.readdirSync(DATA_DIR);
+        for (const file of files) {
+          fs.unlinkSync(path.join(DATA_DIR, file));
+        }
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Could not reset data" });
+    }
+  });
+
+  // API: Shutdown
+  app.post("/api/shutdown", (req, res) => {
+    console.log("Shutting down server...");
+    res.json({ success: true });
+    setTimeout(() => {
+      process.exit(0);
+    }, 1000);
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

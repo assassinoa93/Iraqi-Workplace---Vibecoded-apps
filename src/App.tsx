@@ -918,15 +918,37 @@ export default function App() {
     setConfirmState({
       isOpen: true,
       title: 'Factory Reset',
-      message: 'This will PERMANENTLY delete all employees, schedules, and custom settings from your browser storage. Do you have a backup?',
+      message: 'This will PERMANENTLY delete all employees, schedules, and custom settings from the server. Do you have a backup?',
       onConfirm: () => {
-        localStorage.clear();
-        setEmployees([]);
-        setStations([]);
-        setSchedule({});
-        setHolidays(IRAQI_HOLIDAYS_2026);
-        alert('All data has been cleared. You can now seed new sample data or import your own.');
-        window.location.reload();
+        fetch('/api/reset', { method: 'POST' })
+          .then(() => {
+            localStorage.clear();
+            alert('All data has been cleared on server and browser. The page will now reload.');
+            window.location.reload();
+          });
+      }
+    });
+  };
+
+  const handleQuitApp = () => {
+    setConfirmState({
+      isOpen: true,
+      title: 'Shut Down Application',
+      message: 'Are you sure you want to save all data and shut down the background services? You will need to run run.bat to start again.',
+      onConfirm: () => {
+        // Force one last sync
+        const body = { employees, shifts, holidays, config, stations, allSchedules };
+        fetch('/api/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        }).then(() => {
+          fetch('/api/shutdown', { method: 'POST' })
+            .then(() => {
+              alert('Server is shutting down. You can now close this browser tab.');
+              window.close();
+            });
+        });
       }
     });
   };
@@ -1469,11 +1491,21 @@ export default function App() {
           />
         </nav>
 
-        <div className="p-4 bg-slate-900 border-t border-slate-700">
-          <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-            <span className="truncate mr-2">Scheduler_Template.xlsx</span>
-            <span className="text-emerald-400 font-black shrink-0">SAVED</span>
-          </div>
+        <div className="p-4 border-t border-slate-700 bg-[#0F172A]/50 space-y-2">
+          <button 
+            onClick={handleClearAllData}
+            className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black text-rose-400 uppercase tracking-widest hover:bg-rose-500/10 rounded-lg transition-all"
+          >
+            <Trash2 className="w-4 h-4" />
+            Factory Reset
+          </button>
+          <button 
+            onClick={handleQuitApp}
+            className="w-full flex items-center gap-3 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-lg shadow-red-900/20"
+          >
+            <X className="w-4 h-4" />
+            Quit Application
+          </button>
         </div>
       </aside>
 
