@@ -6,9 +6,9 @@
   "author": {
     "name": "Iraqi Labor Scheduler Project",
     "email": "assassinmachete@gmail.com",
-    "url": "https://github.com/assassinoa93/Iraqi-Workplace---Vibecoded-apps"
+    "url": "https://github.com/assassinoa93/iraqi-labor-scheduler"
   },
-  "homepage": "https://github.com/assassinoa93/Iraqi-Workplace---Vibecoded-apps",
+  "homepage": "https://github.com/assassinoa93/iraqi-labor-scheduler",
   "license": "Apache-2.0",
   "main": "electron/main.cjs",
   "type": "module",
