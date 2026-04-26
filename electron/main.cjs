@@ -27,11 +27,11 @@ process.env.NODE_ENV    = isDev ? 'development' : 'production';
 // In dev, `npm run dev` already runs the tsx server separately.
 if (!isDev) {
   try {
-    const serverBundle = path.join(__dirname, '..', 'server-bundle.js');
+    const serverBundle = path.join(__dirname, '..', 'server-bundle.cjs');
     if (fs.existsSync(serverBundle)) {
       require(serverBundle);
     } else {
-      console.error('[Electron] server-bundle.js not found at:', serverBundle);
+      console.error('[Electron] server-bundle.cjs not found at:', serverBundle);
     }
   } catch (e) {
     console.error('[Electron] Failed to start embedded server:', e);
@@ -130,16 +130,30 @@ function createWindow() {
   createTray(mainWindow);
 }
 
-// ─── App lifecycle ────────────────────────────────────────────────────────────
-app.whenReady().then(createWindow);
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, we should focus our window.
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
 
-app.on('window-all-closed', () => {
-  // Don't quit — window is hidden in tray; user must use Tray > Quit
-});
+  // ─── App lifecycle ────────────────────────────────────────────────────────────
+  app.whenReady().then(createWindow);
 
-app.on('activate', () => {
-  if (!mainWindow) createWindow();
-  else mainWindow.show();
-});
+  app.on('window-all-closed', () => {
+    // Don't quit — window is hidden in tray; user must use Tray > Quit
+  });
 
-app.on('before-quit', () => { app.isQuitting = true; });
+  app.on('activate', () => {
+    if (!mainWindow) createWindow();
+    else mainWindow.show();
+  });
+
+  app.on('before-quit', () => { app.isQuitting = true; });
+}

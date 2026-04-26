@@ -12,13 +12,13 @@ build({
   bundle:   true,
   platform: 'node',
   format:   'cjs',
-  outfile:  path.join(__dirname, '..', 'server-bundle.js'),
+  outfile:  path.join(__dirname, '..', 'server-bundle.cjs'),
   // Vite is only needed in dev; exclude from production bundle
   external: ['vite', 'electron'],
   // Inline the source map for easier debugging
   sourcemap: 'inline',
 }).then(() => {
-  console.log('✅ server-bundle.js created');
+  console.log('✅ server-bundle.cjs created');
 }).catch((e) => {
   console.error('❌ Server bundle failed:', e);
   process.exit(1);

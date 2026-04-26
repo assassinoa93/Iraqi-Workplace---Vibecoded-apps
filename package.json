@@ -50,7 +50,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "server-bundle.js",
+      "server-bundle.cjs",
       "assets/**/*",
       "package.json"
     ],
