@@ -11,11 +11,16 @@ A professional, local-first workforce management and automated scheduling system
 - **🔒 Privacy First**: 100% Local data storage. No cloud dependencies, no tracking.
 - **📄 Professional Reporting**: One-click PDF compliance reports and CSV payroll drafts.
 
-## 🚀 Quick Start (No Setup Required)
-If you have received the **Standalone Installer** (`Iraqi Labor Scheduler Setup.exe`):
-1. **Double-click** the installer.
-2. The app will install and create a **"Iraqi Labor Scheduler"** icon on your Desktop.
-3. Open it and start scheduling!
+## 🚀 Quick Start (Recommended)
+The easiest way to use the app is to download the pre-built installer:
+
+1. **[Download Latest Release (v1.0.3)](https://github.com/assassinoa93/Iraqi-Workplace---Vibecoded-apps/releases/latest)**
+2. Run the **`Iraqi-Labor-Scheduler-Setup-0.0.0.exe`**.
+3. Follow the on-screen instructions to install.
+4. Open the app from your **Desktop Shortcut**.
+
+> [!NOTE]
+> **Windows Security Notice**: Because this is an independent open-source project, Windows may show a "SmartScreen" warning. Click **"More Info"** and then **"Run anyway"** to proceed. This is normal for custom software.
 
 ---
 
