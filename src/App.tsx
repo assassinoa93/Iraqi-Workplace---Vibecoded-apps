@@ -4,16 +4,16 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  Users, 
-  Calendar, 
-  Clock, 
-  ShieldAlert, 
-  FileSpreadsheet, 
-  Settings, 
-  Download, 
-  Plus, 
-  Trash2, 
+import {
+  Users,
+  Calendar,
+  Clock,
+  ShieldAlert,
+  FileSpreadsheet,
+  Settings,
+  Download,
+  Plus,
+  Trash2,
   Edit3,
   BarChart3,
   Search,
@@ -36,755 +36,35 @@ import {
   ChevronLeft,
   TrendingUp,
   ShieldCheck,
-  Upload
+  Upload,
+  Scale
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { 
-  Employee, 
-  Shift, 
-  PublicHoliday, 
-  Config, 
-  Violation, 
+import {
+  Employee,
+  Shift,
+  PublicHoliday,
+  Config,
+  Violation,
   Schedule,
   Station,
-  ScheduleEntry 
+  ScheduleEntry
 } from './types';
 import { ComplianceEngine } from './lib/compliance';
 import { format, startOfMonth, endOfMonth, getDaysInMonth, isWeekend, addMonths, subMonths, parse, addHours, isWithinInterval } from 'date-fns';
 import { IRAQI_HOLIDAYS_2026 } from './lib/constants';
 import { generatePDFReport } from './lib/pdfReport';
+import { INITIAL_SHIFTS, INITIAL_EMPLOYEES, INITIAL_STATIONS, INITIAL_HOLIDAYS, DEFAULT_CONFIG } from './lib/initialData';
+import { runAutoScheduler } from './lib/autoScheduler';
+import { Card, TabButton, KpiCard, ScheduleCell, SettingField } from './components/Primitives';
+import { EmployeeModal } from './components/EmployeeModal';
+import { StationModal } from './components/StationModal';
+import { ShiftModal } from './components/ShiftModal';
+import { HolidayModal } from './components/HolidayModal';
+import { ConfirmModal } from './components/ConfirmModal';
+import { VariablesTab } from './components/VariablesTab';
 
-// --- Mock Initial Data ---
-
-const INITIAL_SHIFTS: Shift[] = [
-  { code: 'FS', name: 'Full Shift', start: '11:00', end: '19:00', durationHrs: 7.5, breakMin: 30, isIndustrial: false, isHazardous: false, isWork: true, description: 'Standard day shift' },
-  { code: 'MX', name: 'Mixed Shift', start: '15:00', end: '23:00', durationHrs: 7.5, breakMin: 30, isIndustrial: false, isHazardous: false, isWork: true, description: 'Evening operation shift' },
-  { code: 'P1', name: 'Part-Time 1', start: '11:00', end: '15:00', durationHrs: 4, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: true, description: 'Peak morning support' },
-  { code: 'P2', name: 'Part-Time 2', start: '15:00', end: '19:00', durationHrs: 4, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: true, description: 'Mid-day transition support' },
-  { code: 'P3', name: 'Part-Time 3', start: '19:00', end: '23:00', durationHrs: 4, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: true, description: 'Closing peak support' },
-  { code: 'OFF', name: 'Day Off', start: '00:00', end: '00:00', durationHrs: 0, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: false, description: 'Regular weekly rest' },
-  { code: 'AL', name: 'Annual Leave', start: '00:00', end: '00:00', durationHrs: 0, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: false, description: 'Approved vacation' },
-  { code: 'SL', name: 'Sick Leave', start: '00:00', end: '00:00', durationHrs: 0, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: false, description: 'Medical leave' },
-  { code: 'PH', name: 'Public Holiday', start: '00:00', end: '00:00', durationHrs: 0, breakMin: 0, isIndustrial: false, isHazardous: false, isWork: false, description: 'National holiday' },
-];
-
-const INITIAL_EMPLOYEES: Employee[] = [
-  ...Array.from({ length: 35 }, (_, i) => ({
-    empId: `EMP-${1000 + i}`,
-    name: `Operator ${i + 1}`,
-    role: 'Machine Operator',
-    department: 'Games',
-    contractType: 'Permanent',
-    contractedWeeklyHrs: 48,
-    shiftEligibility: 'All',
-    isHazardous: false,
-    isIndustrialRotating: false,
-    hourExempt: false,
-    // First 20 use rotating rest day (weekend coverage); rest stay fixed for demo
-    fixedRestDay: i < 20 ? 0 : ((i - 20) % 7) + 1,
-    phone: `+964-770-000-${i.toString().padStart(4, '0')}`,
-    hireDate: '2022-01-01',
-    notes: '',
-    eligibleStations: ['ST-M1', 'ST-M2', 'ST-M3', 'ST-M4', 'ST-M5', 'ST-M6', 'ST-M7', 'ST-M8', 'ST-M9', 'ST-M10'],
-    holidayBank: 0,
-    annualLeaveBalance: 21,
-    baseMonthlySalary: 1200000,
-    baseHourlyRate: Math.round(1200000 / 192),
-    overtimeHours: 0,
-    category: 'Standard' as const
-  })),
-  ...Array.from({ length: 12 }, (_, i) => ({
-    empId: `EMP-${2000 + i}`,
-    name: `Cashier ${i + 1}`,
-    role: 'Cashier',
-    department: 'Cash',
-    contractType: 'Permanent',
-    contractedWeeklyHrs: 48,
-    shiftEligibility: 'All',
-    isHazardous: false,
-    isIndustrialRotating: false,
-    hourExempt: false,
-    // Cashiers all rotate to maximise weekend coverage
-    fixedRestDay: 0,
-    phone: `+964-770-000-${(i + 40).toString().padStart(4, '0')}`,
-    hireDate: '2022-01-01',
-    notes: '',
-    eligibleStations: ['ST-C1', 'ST-C2', 'ST-C3', 'ST-C4'],
-    holidayBank: 0,
-    annualLeaveBalance: 21,
-    baseMonthlySalary: 1000000,
-    baseHourlyRate: Math.round(1000000 / 192),
-    overtimeHours: 0,
-    category: 'Standard' as const
-  })),
-  // Driver pool — governed by Art. 88 transport-worker provisions
-  ...Array.from({ length: 4 }, (_, i) => ({
-    empId: `EMP-${3000 + i}`,
-    name: `Driver ${i + 1}`,
-    role: 'Driver',
-    department: 'Transport',
-    contractType: 'Permanent',
-    contractedWeeklyHrs: 56,
-    shiftEligibility: 'All',
-    isHazardous: false,
-    isIndustrialRotating: false,
-    hourExempt: false,
-    fixedRestDay: 0,
-    phone: `+964-770-000-${(i + 60).toString().padStart(4, '0')}`,
-    hireDate: '2023-06-01',
-    notes: 'Transport / driver — Art. 88',
-    eligibleStations: [],
-    holidayBank: 0,
-    annualLeaveBalance: 21,
-    baseMonthlySalary: 1400000,
-    baseHourlyRate: Math.round(1400000 / 224),
-    overtimeHours: 0,
-    category: 'Driver' as const
-  }))
-];
-
-const INITIAL_STATIONS: Station[] = [
-  { id: 'ST-C1', name: 'Cashier Point 1', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#7c3aed', description: 'Payment processing 1' },
-  { id: 'ST-C2', name: 'Cashier Point 2', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#8b5cf6', description: 'Payment processing 2' },
-  { id: 'ST-C3', name: 'Cashier Point 3', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#a78bfa', description: 'Payment processing 3' },
-  { id: 'ST-C4', name: 'Cashier Point 4', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#c4b5fd', description: 'Payment processing 4' },
-  { id: 'ST-M1', name: 'Ice Hockey', normalMinHC: 1, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#2563eb', description: 'Air hockey station' },
-  { id: 'ST-M2', name: 'Arcade Zone', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#059669', description: 'Video games area' },
-  { id: 'ST-M3', name: 'Giant Slide', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#10b981', description: 'Inflatable slide' },
-  { id: 'ST-M4', name: 'Bumping Cars', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#d97706', description: 'Safe collision cars' },
-  { id: 'ST-M5', name: 'Carousel', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#ea580c', description: 'Merry-go-round' },
-  { id: 'ST-M6', name: 'VR Simulator', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#0891b2', description: 'Virtual reality pods' },
-  { id: 'ST-M7', name: 'Bowling Alley', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#475569', description: 'Family bowling lanes' },
-  { id: 'ST-M8', name: 'Trampoline Park', normalMinHC: 1, peakMinHC: 2, openingTime: '11:00', closingTime: '23:00', color: '#db2777', description: 'Active jumping area' },
-  { id: 'ST-M9', name: 'Mini-Train', normalMinHC: 1, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#dc2626', description: 'Mall tour train' },
-  { id: 'ST-M10', name: 'Claw Machine', normalMinHC: 0, peakMinHC: 1, openingTime: '11:00', closingTime: '23:00', color: '#f59e0b', description: 'Prize pickers' },
-];
-
-const DEFAULT_CONFIG: Config = {
-  company: 'Workforce Unit',
-  year: new Date().getFullYear(),
-  month: new Date().getMonth() + 1,
-  daysInMonth: getDaysInMonth(new Date()),
-  weekendPolicy: 'Friday Only',
-  weeklyRestDayPrimary: 6,
-  continuousShiftsMode: 'OFF',
-  coverageMin: 5,
-  maxConsecWorkDays: 6,
-  standardDailyHrsCap: 8,
-  hazardousDailyHrsCap: 7,
-  standardWeeklyHrsCap: 48,
-  hazardousWeeklyHrsCap: 36,
-  minRestBetweenShiftsHrs: 11,
-  // Iraqi Labor Law Art. 88 + Ministry of Transport regulations for transport workers.
-  driverDailyHrsCap: 9,
-  driverWeeklyHrsCap: 56,
-  driverContinuousDrivingHrsCap: 4.5,
-  driverMinDailyRestHrs: 11,
-  driverMaxConsecWorkDays: 6,
-  shopOpeningTime: '11:00',
-  shopClosingTime: '23:00',
-  peakDays: [5, 6, 7], // Thu, Fri, Sat
-  holidays: [],
-  otRateDay: 1.5,
-  otRateNight: 2.0
-};
-
-// --- Components ---
-
-const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
-  <div className={cn("bg-white rounded border border-slate-200 shadow-sm overflow-hidden", className)}>
-    {children}
-  </div>
-);
-
-const TabButton = ({ active, icon: Icon, label, index, onClick }: { active: boolean; icon: any; label: string; index: string; onClick: () => void }) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      "w-full flex items-center gap-4 px-6 py-3.5 text-sm transition-all duration-200",
-      active 
-        ? "bg-blue-600/20 border-l-4 border-blue-500 text-white font-medium" 
-        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-    )}
-  >
-    <span className={cn("text-[10px] font-bold transition-opacity", active ? "opacity-100" : "opacity-40")}>{index}</span>
-    <span>{label}</span>
-  </button>
-);
-
-interface EmployeeModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (emp: Employee) => void;
-  employee: Employee | null;
-}
-
-function StationModal({ isOpen, onClose, onSave, station }: { isOpen: boolean; onClose: () => void; onSave: (s: Station) => void; station: Station | null }) {
-  const [formData, setFormData] = useState<Station>({
-    id: '',
-    name: '',
-    normalMinHC: 0,
-    peakMinHC: 1,
-    requiredRoles: [],
-    openingTime: '08:00',
-    closingTime: '23:00',
-    color: '#3B82F6'
-  });
-
-  useEffect(() => {
-    if (station) setFormData(station);
-    else setFormData({ id: '', name: '', normalMinHC: 0, peakMinHC: 1, requiredRoles: [], openingTime: '08:00', closingTime: '23:00', color: '#3B82F6' });
-  }, [station, isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="font-black text-slate-800 uppercase tracking-tighter">Station Profile</h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-lg transition-colors"><X className="w-5 h-5 text-slate-400" /></button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Station ID / Name</label>
-            <div className="flex gap-2">
-              <input value={formData.id} onChange={e => setFormData({...formData, id: e.target.value})} placeholder="ID" className="w-24 bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
-              <input value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Display Name" className="flex-1 bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-bold" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-             <div>
-               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Normal Min HC</label>
-               <input type="number" value={formData.normalMinHC} onChange={e => setFormData({...formData, normalMinHC: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
-             </div>
-             <div>
-               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Peak Min HC</label>
-               <input type="number" value={formData.peakMinHC} onChange={e => setFormData({...formData, peakMinHC: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
-             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-             <div>
-               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Opening Time</label>
-               <input type="time" value={formData.openingTime} onChange={e => setFormData({...formData, openingTime: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
-             </div>
-             <div>
-               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Closing Time</label>
-               <input type="time" value={formData.closingTime} onChange={e => setFormData({...formData, closingTime: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
-             </div>
-          </div>
-          <div>
-            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">Theme Color</label>
-            <input type="color" value={formData.color} onChange={e => setFormData({...formData, color: e.target.value})} className="w-full h-9 p-1 bg-slate-50 border border-slate-200 rounded-lg" />
-          </div>
-        </div>
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-          <button onClick={onClose} className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 py-2 hover:text-slate-600 transition-colors">Cancel</button>
-          <button onClick={() => { onSave(formData); onClose(); }} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all">Save Station</button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function EmployeeModal({ 
-  isOpen, 
-  onClose, 
-  onSave, 
-  employee,
-  stations
-}: EmployeeModalProps & { stations: Station[] }) {
-  const [formData, setFormData] = useState<Employee>({
-    empId: '',
-    name: '',
-    role: '',
-    department: '',
-    contractType: 'Permanent',
-    contractedWeeklyHrs: 48,
-    shiftEligibility: 'All',
-    isHazardous: false,
-    isIndustrialRotating: true,
-    hourExempt: false,
-    fixedRestDay: 0,
-    phone: '',
-    hireDate: format(new Date(), 'yyyy-MM-dd'),
-    notes: '',
-    eligibleStations: [],
-    holidayBank: 0,
-    annualLeaveBalance: 21,
-    baseMonthlySalary: 1500000,
-    baseHourlyRate: Math.round(1500000 / 192),
-    overtimeHours: 0,
-    category: 'Standard'
-  });
-
-  useEffect(() => {
-    if (isOpen) {
-      setFormData(employee
-        ? { category: 'Standard', ...employee } // backfill default for v1.1 records
-        : {
-        empId: `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
-        name: '',
-        role: '',
-        department: '',
-        contractType: 'Permanent',
-        contractedWeeklyHrs: 48,
-        shiftEligibility: 'All',
-        isHazardous: false,
-        isIndustrialRotating: true,
-        hourExempt: false,
-        fixedRestDay: 0,
-        phone: '',
-        hireDate: format(new Date(), 'yyyy-MM-dd'),
-        notes: '',
-        eligibleStations: [],
-        holidayBank: 0,
-        annualLeaveBalance: 21,
-        baseMonthlySalary: 1500000,
-        baseHourlyRate: Math.round(1500000 / 192),
-        overtimeHours: 0,
-        category: 'Standard'
-      });
-    }
-  }, [employee, isOpen]);
-
-  if (!isOpen) return null;
-
-  const toggleStation = (id: string) => {
-    setFormData(prev => ({
-      ...prev,
-      eligibleStations: prev.eligibleStations.includes(id)
-        ? prev.eligibleStations.filter(sid => sid !== id)
-        : [...prev.eligibleStations, id]
-    }));
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-white w-full max-w-2xl rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
-      >
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="text-lg font-bold text-slate-800">
-            {employee ? 'Edit Personnel File' : 'Onboard New Employee'}
-          </h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-slate-500" />
-          </button>
-        </div>
-
-        <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
-          <div className="grid grid-cols-2 gap-6">
-            <SettingField label="Employee ID" value={formData.empId} onChange={v => setFormData({...formData, empId: v})} />
-            <SettingField label="Full Name" value={formData.name} onChange={v => setFormData({...formData, name: v})} />
-            <SettingField label="Job Role" value={formData.role} onChange={v => setFormData({...formData, role: v})} />
-            <SettingField label="Department" value={formData.department} onChange={v => setFormData({...formData, department: v})} />
-            <SettingField label="Contract Type" type="select" options={['Permanent', 'Fixed-Term', 'Contractor']} value={formData.contractType} onChange={v => setFormData({...formData, contractType: v})} />
-            <SettingField label="Weekly Hours" type="number" value={formData.contractedWeeklyHrs} onChange={v => setFormData({...formData, contractedWeeklyHrs: parseInt(v)})} />
-            <SettingField label="Phone Contact" value={formData.phone} onChange={v => setFormData({...formData, phone: v})} />
-            <SettingField label="Hire Date" value={formData.hireDate} onChange={v => setFormData({...formData, hireDate: v})} />
-            <SettingField 
-              label="Base Monthly Salary (IQD)" 
-              type="number" 
-              value={formData.baseMonthlySalary} 
-              onChange={v => {
-                const salary = parseInt(v) || 0;
-                setFormData({
-                  ...formData, 
-                  baseMonthlySalary: salary,
-                  baseHourlyRate: Math.round(salary / 192)
-                });
-              }} 
-            />
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">OT Hourly Rate (Derived)</label>
-              <div className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded text-sm font-mono text-slate-500 shadow-sm flex justify-between items-center">
-                 <span>{formData.baseHourlyRate.toLocaleString()} IQD</span>
-                 <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black tracking-widest">AUTO: (SALARY / 192)</span>
-              </div>
-            </div>
-            <SettingField label="Holiday Bank (Earned)" type="number" value={formData.holidayBank} onChange={v => setFormData({...formData, holidayBank: parseInt(v)})} />
-            <SettingField label="Annual Leave Balance" type="number" value={formData.annualLeaveBalance} onChange={v => setFormData({...formData, annualLeaveBalance: parseInt(v)})} />
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rest Day Policy</label>
-              <select
-                value={formData.fixedRestDay}
-                onChange={e => setFormData({...formData, fixedRestDay: parseInt(e.target.value)})}
-                className="w-full px-4 py-2 bg-white border border-slate-200 rounded text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
-              >
-                <option value={0}>No Fixed Rest Day (Auto-Rotate)</option>
-                {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d, i) => (
-                  <option key={i} value={i + 1}>Fixed: {d}</option>
-                ))}
-              </select>
-              <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
-                {formData.fixedRestDay === 0
-                  ? 'Auto-scheduler will rotate this person\'s rest day across the week to cover weekends and peak days.'
-                  : 'This person is always off on the selected day. Use Auto-Rotate to free up weekend coverage.'}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Personnel Category</label>
-              <select
-                value={formData.category || 'Standard'}
-                onChange={e => setFormData({...formData, category: e.target.value as 'Standard' | 'Driver'})}
-                className="w-full px-4 py-2 bg-white border border-slate-200 rounded text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
-              >
-                <option value="Standard">Standard (Art. 67-74)</option>
-                <option value="Driver">Driver / Transport (Art. 88)</option>
-              </select>
-              <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
-                {formData.category === 'Driver'
-                  ? 'Drivers follow the transport-worker provisions: 9h daily / 56h weekly cap, 4.5h continuous-driving cap, 11h min daily rest.'
-                  : 'Standard staff follow Art. 67-74: 8h daily / 48h weekly cap, 11h min rest between shifts.'}
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3 p-4 bg-blue-50/30 rounded-lg border border-blue-100">
-            <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Station Eligibility (Layout Assignments)</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {stations.map(st => (
-                <button
-                  key={st.id}
-                  onClick={() => toggleStation(st.id)}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border",
-                    formData.eligibleStations.includes(st.id)
-                      ? "bg-blue-600 border-blue-700 text-white shadow-sm"
-                      : "bg-white border-slate-200 text-slate-400 hover:border-blue-300"
-                  )}
-                >
-                  <Plus className={cn("w-3 h-3", formData.eligibleStations.includes(st.id) && "rotate-45")} />
-                  {st.name}
-                </button>
-              ))}
-              {stations.length === 0 && <p className="text-[10px] text-slate-400 font-medium col-span-3">No stations defined in Layout tab yet.</p>}
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isHazardous} onChange={e => setFormData({...formData, isHazardous: e.target.checked})} />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">Hazardous Duties</span>
-             </div>
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isIndustrialRotating} onChange={e => setFormData({...formData, isIndustrialRotating: e.target.checked})} />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">Industrial Rotation</span>
-             </div>
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.hourExempt} onChange={e => setFormData({...formData, hourExempt: e.target.checked})} />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">Hour Exempt</span>
-             </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Internal Personnel Notes</label>
-            <textarea 
-              className="w-full p-4 bg-white border border-slate-200 rounded text-sm min-h-[100px] focus:ring-1 focus:ring-blue-500 outline-none"
-              value={formData.notes}
-              onChange={e => setFormData({...formData, notes: e.target.value})}
-              placeholder="Enter compliance notes, performance context, or equipment requirements..."
-            />
-          </div>
-        </div>
-
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-          <button onClick={onClose} className="px-6 py-2 rounded text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all uppercase tracking-widest">Cancel</button>
-          <button 
-            onClick={() => onSave(formData)}
-            className="px-8 py-2 bg-slate-900 text-white rounded text-sm font-bold hover:bg-slate-800 transition-all shadow-lg uppercase tracking-widest"
-          >
-            Commit Record
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function ShiftModal({ 
-  isOpen, 
-  onClose, 
-  onSave, 
-  shift,
-  config
-}: { 
-  isOpen: boolean; 
-  onClose: () => void; 
-  onSave: (s: Shift) => void; 
-  shift: Shift | null;
-  config: Config;
-}) {
-  const [formData, setFormData] = useState<Shift>(shift || {
-    code: '',
-    name: '',
-    start: '11:00',
-    end: '19:00',
-    durationHrs: 8,
-    breakMin: 60,
-    isIndustrial: false,
-    isHazardous: false,
-    isWork: true,
-    description: ''
-  });
-
-  // Auto-calculate working hours and validate against business hours
-  useEffect(() => {
-    if (!formData.start || !formData.end) return;
-    
-    const [sH, sM] = formData.start.split(':').map(Number);
-    const [eH, eM] = formData.end.split(':').map(Number);
-    
-    let diffMin = (eH * 60 + eM) - (sH * 60 + sM);
-    if (diffMin < 0) diffMin += 24 * 60; // Crossing midnight
-    
-    const calculatedHrs = Math.max(0, (diffMin - (formData.breakMin || 0)) / 60);
-    if (calculatedHrs !== formData.durationHrs) {
-      setFormData(prev => ({ ...prev, durationHrs: Number(calculatedHrs.toFixed(2)) }));
-    }
-  }, [formData.start, formData.end, formData.breakMin]);
-
-  const shopStart = parseInt((config.shopOpeningTime || '00:00').split(':')[0]);
-  const shopEnd = parseInt((config.shopClosingTime || '23:59').split(':')[0]);
-  const shiftStart = parseInt((formData.start || '00:00').split(':')[0]);
-  const shiftEnd = parseInt((formData.end || '00:00').split(':')[0]);
-  
-  const isOutside = (shiftStart < shopStart) || (shiftEnd > shopEnd && shiftEnd !== 0) || (shiftEnd === 0 && shopEnd < 23);
-
-  useEffect(() => {
-    if (isOpen) {
-      setFormData(shift || {
-        code: '',
-        name: '',
-        start: '08:00',
-        end: '16:00',
-        durationHrs: 8,
-        breakMin: 60,
-        isIndustrial: false,
-        isHazardous: false,
-        isWork: true,
-        description: ''
-      });
-    }
-  }, [shift, isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-white w-full max-w-lg rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
-      >
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="text-lg font-bold text-slate-800">
-            {shift ? 'Edit Shift Configuration' : 'Create New Shift Type'}
-          </h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-slate-500" />
-          </button>
-        </div>
-
-        <div className="p-8 space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <SettingField label="Shift Code (e.g. FS)" value={formData.code} onChange={v => setFormData({...formData, code: v})} />
-            <SettingField label="Display Name" value={formData.name} onChange={v => setFormData({...formData, name: v})} />
-            <SettingField label="Start Time" type="time" value={formData.start} onChange={v => setFormData({...formData, start: v})} />
-            <SettingField label="End Time" type="time" value={formData.end} onChange={v => setFormData({...formData, end: v})} />
-            <SettingField label="Work Hours (Auto)" type="number" value={formData.durationHrs} onChange={v => setFormData({...formData, durationHrs: parseFloat(v)})} />
-            <SettingField label="Break (Min)" type="number" value={formData.breakMin} onChange={v => setFormData({...formData, breakMin: parseInt(v)})} />
-          </div>
-
-          {isOutside && formData.isWork && (
-            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700">
-              <AlertCircle className="w-4 h-4" />
-              <p className="text-[10px] font-bold uppercase tracking-tight">Warning: Shift falls outside business operating hours ({config.shopOpeningTime} - {config.shopClosingTime})</p>
-            </div>
-          )}
-          
-          <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isHazardous} onChange={e => setFormData({...formData, isHazardous: e.target.checked})} />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">Hazardous Shift</span>
-             </div>
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isWork} onChange={e => setFormData({...formData, isWork: e.target.checked})} />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">Counts as Work</span>
-             </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Shift Description</label>
-            <textarea 
-              className="w-full p-3 bg-white border border-slate-200 rounded text-xs min-h-[60px] focus:ring-1 focus:ring-blue-500 outline-none"
-              value={formData.description}
-              onChange={e => setFormData({...formData, description: e.target.value})}
-              placeholder="Instructions for supervisors or legal context..."
-            />
-          </div>
-        </div>
-
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-          <button onClick={onClose} className="px-6 py-2 rounded text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all uppercase tracking-widest">Cancel</button>
-          <button 
-            onClick={() => onSave(formData)}
-            className="px-8 py-2 bg-slate-900 text-white rounded text-sm font-bold hover:bg-slate-800 transition-all shadow-lg uppercase tracking-widest"
-          >
-            Save Shift
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-const INITIAL_HOLIDAYS: PublicHoliday[] = [
-  { date: '2026-01-01', name: "New Year's Day", type: 'National', legalReference: 'Civil Law' },
-  { date: '2026-01-06', name: 'Army Day', type: 'National', legalReference: 'Military Code' },
-  { date: '2026-03-21', name: 'Nawruz', type: 'National', legalReference: 'Customary Law' },
-  { date: '2026-05-01', name: 'Labor Day', type: 'National', legalReference: 'Labor Law Art. 73' },
-  { date: '2026-07-14', name: 'Republic Day', type: 'National', legalReference: 'Constitutional' },
-  { date: '2026-10-03', name: 'National Day', type: 'National', legalReference: 'Independence' },
-  { date: '2026-12-25', name: 'Christmas Day', type: 'National', legalReference: 'Inclusion' },
-];
-
-function HolidayModal({ 
-  isOpen, 
-  onClose, 
-  onSave, 
-  holiday 
-}: { 
-  isOpen: boolean; 
-  onClose: () => void; 
-  onSave: (h: PublicHoliday) => void; 
-  holiday: PublicHoliday | null;
-}) {
-  const [formData, setFormData] = useState<PublicHoliday>(holiday || {
-    date: format(new Date(), 'yyyy-MM-dd'),
-    name: '',
-    type: 'National',
-    legalReference: 'Article 73'
-  });
-
-  useEffect(() => {
-    if (isOpen) {
-      setFormData(holiday || {
-        date: format(new Date(), 'yyyy-MM-dd'),
-        name: '',
-        type: 'National',
-        legalReference: 'Article 73'
-      });
-    }
-  }, [holiday, isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
-      >
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="text-lg font-bold text-slate-800">
-            {holiday ? 'Edit Public Holiday' : 'Add Legal Holiday'}
-          </h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-slate-500" />
-          </button>
-        </div>
-
-        <div className="p-8 space-y-4">
-          <SettingField label="Holiday Date" type="text" value={formData.date} onChange={v => setFormData({...formData, date: v})} />
-          <SettingField label="Holiday Name" value={formData.name} onChange={v => setFormData({...formData, name: v})} />
-          <SettingField label="Category" type="select" options={['National', 'Religious', 'Sector-Specific', 'Custom']} value={formData.type} onChange={v => setFormData({...formData, type: v})} />
-          <SettingField label="Legal Reference" value={formData.legalReference} onChange={v => setFormData({...formData, legalReference: v})} />
-        </div>
-
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-          <button onClick={onClose} className="px-6 py-2 rounded text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all uppercase tracking-widest">Cancel</button>
-          <button 
-            onClick={() => onSave(formData)}
-            className="px-8 py-2 bg-slate-900 text-white rounded text-sm font-bold hover:bg-slate-800 transition-all shadow-lg uppercase tracking-widest"
-          >
-            Declare Holiday
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-const ConfirmModal = ({ 
-  isOpen, 
-  onClose, 
-  onConfirm, 
-  title, 
-  message,
-  extraAction
-}: { 
-  isOpen: boolean; 
-  onClose: () => void; 
-  onConfirm: () => void; 
-  title: string; 
-  message: string;
-  extraAction?: {
-    label: string;
-    onClick: () => void;
-    icon?: any;
-  };
-}) => {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-white w-full max-w-sm rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
-      >
-        <div className="p-6 text-center">
-          <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Trash2 className="w-6 h-6" />
-          </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-2">{title}</h3>
-          <p className="text-sm text-slate-500 mb-6">{message}</p>
-          
-          {extraAction && (
-            <button 
-              onClick={extraAction.onClick}
-              className="w-full flex items-center justify-center gap-2 mb-4 px-4 py-3 bg-blue-50 text-blue-700 rounded-lg font-bold text-[10px] uppercase tracking-widest hover:bg-blue-100 transition-all border border-blue-100"
-            >
-              {extraAction.icon && <extraAction.icon className="w-4 h-4" />}
-              {extraAction.label}
-            </button>
-          )}
-
-          <div className="flex gap-3">
-            <button 
-              onClick={onClose}
-              className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={() => {
-                onConfirm();
-                onClose();
-              }}
-              className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-red-700 transition-all shadow-md"
-            >
-              Confirm
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -1281,229 +561,17 @@ export default function App() {
     }));
   };
 
-  const runAutoScheduler = () => {
-    const newSchedule: Schedule = {};
-    const workShifts = shifts.filter(s => s.isWork);
-    
-    if (workShifts.length === 0 || stations.length === 0) {
-      alert("Auto-scheduler requires shifts and stations defined.");
-      return;
+  const handleRunAutoScheduler = () => {
+    try {
+      const { schedule: newSchedule, updatedEmployees } = runAutoScheduler({
+        employees, shifts, stations, holidays, config, isPeakDay,
+      });
+      setEmployees(updatedEmployees);
+      setSchedule(newSchedule);
+      alert('Comprehensive Coverage-Optimized Scheduler complete. Priority: Cashier Points > Games. Drivers respect Art. 88 caps; rotating-rest staff are distributed across the week.');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Auto-scheduler failed.');
     }
-
-    // Pre-calculate eligibility maps for speed
-    const roleBasedPools = {
-      cashiers: employees.filter(e => e.role === 'Cashier'),
-      operators: employees.filter(e => e.role === 'Machine Operator'),
-      others: employees.filter(e => e.role !== 'Cashier' && e.role !== 'Machine Operator')
-    };
-
-    const consecutiveWork = new Map<string, number>();
-    const totalHoursWorked = new Map<string, number>();
-    const usedHolidayBankThisMonth = new Map<string, number>();
-    const updatedEmployees = [...employees];
-    
-    employees.forEach(emp => {
-      newSchedule[emp.empId] = {};
-      consecutiveWork.set(emp.empId, 0);
-      totalHoursWorked.set(emp.empId, 0);
-      usedHolidayBankThisMonth.set(emp.empId, 0);
-    });
-
-    const holidayDates = new Set(holidays.map(h => h.date));
-
-    // Driver-specific caps fall back to defaults if loaded from older saves
-    const driverCfg = {
-      dailyHrsCap: config.driverDailyHrsCap ?? 9,
-      weeklyHrsCap: config.driverWeeklyHrsCap ?? 56,
-      maxConsecWorkDays: config.driverMaxConsecWorkDays ?? 6,
-    };
-
-    // Internal helper to check if an employee is free and legal for a shift
-    const evaluate = (emp: Employee, day: number, shift: Shift, stationId: string, level: 1 | 2 | 3, peak: boolean, station: Station) => {
-      // 1. Is already working today?
-      if (newSchedule[emp.empId][day]) return false;
-
-      // 2. Eligibility — drivers only land on stations that explicitly require 'Driver';
-      //    standard staff use the existing eligibleStations whitelist.
-      const driver = emp.category === 'Driver';
-      if (driver) {
-        if (!station.requiredRoles?.includes('Driver')) return false;
-      } else {
-        const isEligible = emp.eligibleStations.length === 0 || emp.eligibleStations.includes(stationId);
-        if (!isEligible) return false;
-        // Non-driver stations should not pull non-driver staff onto driver-restricted stations either
-        if (station.requiredRoles?.length && !station.requiredRoles.some(r => r === emp.role || r === 'Standard')) return false;
-      }
-
-      // Driver-specific shift duration cap (Art. 88)
-      if (driver && shift.durationHrs > driverCfg.dailyHrsCap && level < 3) return false;
-
-      // 3. Labor Law Logic
-      const date = new Date(config.year, config.month - 1, day);
-      const dayOfWeek = date.getDay() + 1; // 1=Sun, ..., 7=Sat
-
-      // HOLIDAY BANK UTILIZATION:
-      // If NOT a peak day, and employee has bank days, and we are NOT in emergency level 3,
-      // try to skip them to give them a rest day. Rotating-rest employees (fixedRestDay = 0)
-      // never match dayOfWeek === fixedRestDay, so this still triggers for them.
-      if (!peak && level < 3) {
-        const currentBank = emp.holidayBank - (usedHolidayBankThisMonth.get(emp.empId) || 0);
-        if (currentBank > 0 && dayOfWeek !== emp.fixedRestDay) {
-          return false; // Skip them to favor others who don't have bank days to use up
-        }
-      }
-
-      const consecCap = driver ? driverCfg.maxConsecWorkDays : config.maxConsecWorkDays;
-
-      // Level 1: Strict (No Rest Day violations, No 6+ day streaks, No OT beyond Weekly Cap)
-      if (level === 1) {
-        // fixedRestDay === 0 means rotating: no fixed-day exclusion. Rest is enforced via
-        // maxConsecWorkDays + rolling-7 weekly cap below, and via the fairness sort outside.
-        if (emp.fixedRestDay !== 0 && dayOfWeek === emp.fixedRestDay) return false;
-        if ((consecutiveWork.get(emp.empId) || 0) >= consecCap) return false;
-
-        // Rolling 7-day hours check
-        let rolling = 0;
-        for (let d = Math.max(1, day - 6); d < day; d++) {
-          const entry = newSchedule[emp.empId][d];
-          const s = shifts.find(sh => sh.code === entry?.shiftCode);
-          if (s) rolling += s.durationHrs;
-        }
-        const cap = driver
-          ? driverCfg.weeklyHrsCap
-          : (emp.isHazardous ? config.hazardousWeeklyHrsCap : config.standardWeeklyHrsCap);
-        if (rolling + shift.durationHrs > cap) return false;
-      }
-
-      // Level 2: Continuity (Allow OT, allow 7th day IF NEEDED, but respect Fixed Rest Day)
-      if (level === 2) {
-        if (emp.fixedRestDay !== 0 && dayOfWeek === emp.fixedRestDay) return false;
-        // Allows consecutive and weekly cap breaches
-      }
-
-      // Level 3: Emergency (Allow anything to keep station open)
-      // Level 3 just checks "not already working today" and "eligible" (which we did at start)
-
-      return true;
-    };
-
-    // Main Scheduling Loop - Day by Day
-    for (let day = 1; day <= config.daysInMonth; day++) {
-      const date = new Date(config.year, config.month - 1, day);
-      const isHoliday = holidayDates.has(format(date, 'yyyy-MM-dd'));
-      const peak = isPeakDay(day);
-      
-      // Shuffle stations so we don't always starve the last ones
-      const sortedStations = [...stations].sort((a, b) => {
-        // Always prioritize Cashier points
-        const isA = a.id.startsWith('ST-C');
-        const isB = b.id.startsWith('ST-C');
-        if (isA !== isB) return isA ? -1 : 1;
-        return 0;
-      });
-
-      // Hour by Hour filling (The heuristic)
-      const hours = Array.from({ length: 24 }, (_, i) => i);
-      
-      hours.forEach(hour => {
-        sortedStations.forEach(st => {
-          const sOpen = parseInt(st.openingTime.split(':')[0]);
-          const sClose = parseInt(st.closingTime.split(':')[0]);
-          if (hour < sOpen || hour >= sClose) return;
-
-          // Check current headcount for this station at this hour
-          let currentHC = employees.filter(e => {
-            const assignment = newSchedule[e.empId][day];
-            if (!assignment || assignment.stationId !== st.id) return false;
-            const shift = shifts.find(s => s.code === assignment.shiftCode);
-            if (!shift) return false;
-            const start = parseInt(shift.start.split(':')[0]);
-            const end = parseInt(shift.end.split(':')[0]);
-            return hour >= start && hour < end;
-          }).length;
-
-          const requiredHC = peak ? st.peakMinHC : st.normalMinHC;
-
-          while (currentHC < requiredHC) {
-            // Find a shift that covers this hour
-            const validShifts = workShifts
-              .filter(s => {
-                const start = parseInt(s.start.split(':')[0]);
-                const end = parseInt(s.end.split(':')[0]);
-                return hour >= start && hour < end;
-              })
-              .sort((a, b) => b.durationHrs - a.durationHrs); // Prefer longer shifts for stability
-
-            if (validShifts.length === 0) break;
-
-            // Sort pool ONCE per station-hour (not inside the shift/level loops) — O(n log n) instead of O(n² log n).
-            // For rotating-rest staff (fixedRestDay = 0) the consecutive-day tiebreaker prefers
-            // those who recently rested, naturally rotating rest across the week.
-            const sortedPool = [...employees].sort((a, b) => {
-              const hA = totalHoursWorked.get(a.empId) || 0;
-              const hB = totalHoursWorked.get(b.empId) || 0;
-              if (Math.abs(hA - hB) > 4) return hA - hB;
-              const cA = consecutiveWork.get(a.empId) || 0;
-              const cB = consecutiveWork.get(b.empId) || 0;
-              return cA - cB;
-            });
-
-            let assigned = false;
-            // Passes: 1 (Legal), 2 (OT/Streaks allowed), 3 (Emergency)
-            for (let level of [1, 2, 3] as (1 | 2 | 3)[]) {
-              for (const targetShift of validShifts) {
-                const candidate = sortedPool.find(e => evaluate(e, day, targetShift, st.id, level, peak, st));
-                if (candidate) {
-                  newSchedule[candidate.empId][day] = { shiftCode: targetShift.code, stationId: st.id };
-                  totalHoursWorked.set(candidate.empId, (totalHoursWorked.get(candidate.empId) || 0) + targetShift.durationHrs);
-                  consecutiveWork.set(candidate.empId, (consecutiveWork.get(candidate.empId) || 0) + 1);
-                  
-                  if (isHoliday) {
-                    const idx = updatedEmployees.findIndex(e => e.empId === candidate.empId);
-                    if (idx >= 0) {
-                      updatedEmployees[idx] = { ...updatedEmployees[idx], holidayBank: (updatedEmployees[idx].holidayBank || 0) + 1 };
-                    }
-                  }
-                  
-                  assigned = true;
-                  currentHC++;
-                  break;
-                }
-              }
-              if (assigned) break;
-            }
-            if (!assigned) break; // Could not fill station
-          }
-        });
-      });
-
-      // Mark everyone else as OFF and reset their consecutive streaks
-      // Also utilize holiday bank if someone was forced OFF on a non-peak day
-      employees.forEach(e => {
-        if (!newSchedule[e.empId][day]) {
-          newSchedule[e.empId][day] = { shiftCode: 'OFF' };
-          consecutiveWork.set(e.empId, 0);
-
-          const date = new Date(config.year, config.month - 1, day);
-          const dayOfWeek = date.getDay() + 1;
-          const peak = isPeakDay(day);
-
-          // If it was a non-peak day, they were not ALREADY on their fixed rest day,
-          // and they have bank days, they have now "utilized" one compensation day.
-          if (!peak && dayOfWeek !== e.fixedRestDay) {
-            const idx = updatedEmployees.findIndex(emp => emp.empId === e.empId);
-            if (idx >= 0 && updatedEmployees[idx].holidayBank > 0) {
-              updatedEmployees[idx].holidayBank -= 1;
-              usedHolidayBankThisMonth.set(e.empId, (usedHolidayBankThisMonth.get(e.empId) || 0) + 1);
-            }
-          }
-        }
-      });
-    }
-
-    setEmployees(updatedEmployees);
-    setSchedule(newSchedule);
-    alert("Comprehensive Coverage-Optimized Scheduler complete. Priority: Cashier Points > Games. No stations left empty where staff eligible.");
   };
 
   const handleExportPDF = () => {
@@ -1696,19 +764,26 @@ export default function App() {
             icon={Calendar} 
             onClick={() => setActiveTab('schedule')} 
           />
-          <TabButton 
-            active={activeTab === 'reports'} 
-            label="Reporting Center" 
+          <TabButton
+            active={activeTab === 'reports'}
+            label="Reporting Center"
             index="08"
-            icon={FileSpreadsheet} 
-            onClick={() => setActiveTab('reports')} 
+            icon={FileSpreadsheet}
+            onClick={() => setActiveTab('reports')}
           />
-          <TabButton 
-            active={activeTab === 'settings'} 
-            label="System Settings" 
+          <TabButton
+            active={activeTab === 'variables'}
+            label="Legal Variables"
             index="09"
-            icon={Settings} 
-            onClick={() => setActiveTab('settings')} 
+            icon={Scale}
+            onClick={() => setActiveTab('variables')}
+          />
+          <TabButton
+            active={activeTab === 'settings'}
+            label="System Settings"
+            index="10"
+            icon={Settings}
+            onClick={() => setActiveTab('settings')}
           />
         </nav>
 
@@ -2576,8 +1651,8 @@ export default function App() {
                       </button>
                     </div>
 
-                    <button 
-                      onClick={runAutoScheduler}
+                    <button
+                      onClick={handleRunAutoScheduler}
                       className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95"
                     >
                       <Sparkles className="w-4 h-4" />
@@ -2907,6 +1982,10 @@ export default function App() {
               </div>
             )}
 
+            {activeTab === 'variables' && (
+              <VariablesTab config={config} setConfig={setConfig} />
+            )}
+
             {activeTab === 'settings' && (
               <div className="space-y-8 max-w-4xl">
                 <div>
@@ -3097,81 +2176,5 @@ export default function App() {
       />
     </div>
     </>
-  );
-}
-
-function KpiCard({ label, value, trend }: { label: string; value: any; trend?: string }) {
-  return (
-    <Card className="p-5 border-slate-200 shadow-sm group bg-white">
-      <p className="text-[11px] text-slate-400 uppercase tracking-widest font-bold mb-2">{label}</p>
-      <div className="flex items-baseline gap-2">
-        <span className={cn(
-          "text-3xl font-light tracking-tight",
-          trend === 'Critical' ? "text-red-600" : "text-slate-900"
-        )}>
-          {value}
-        </span>
-        <span className="text-[10px] text-slate-400 font-bold uppercase">{trend ? "" : "Staff"}</span>
-      </div>
-      {trend && (
-        <div className="mt-4 flex items-center gap-1.5">
-          <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", trend === 'Critical' ? "bg-red-500" : "bg-emerald-500")} />
-          <span className={cn("text-[10px] font-bold uppercase tracking-tight", trend === 'Critical' ? "text-red-500" : "text-emerald-500")}>
-            {trend === 'Critical' ? "Requires Review" : "System Balanced"}
-          </span>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function ScheduleCell({ value, onClick }: { value: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "w-full h-10 border-none transition-all flex items-center justify-center font-bold text-[10px] group-hover:scale-105",
-        value ? getShiftColor(value) : "bg-transparent hover:bg-slate-50"
-      )}
-    >
-      {value}
-    </button>
-  );
-}
-
-function getShiftColor(code: string) {
-  switch (code) {
-    case 'FS': return "bg-blue-50 text-blue-700 border-blue-100";
-    case 'HS': return "bg-emerald-50 text-emerald-700 border-emerald-100";
-    case 'MX': return "bg-amber-50 text-amber-700 border-amber-100";
-    case 'OFF': return "bg-slate-100 text-slate-500 border-slate-200";
-    case 'AL': return "bg-purple-50 text-purple-700 border-purple-100";
-    case 'SL': return "bg-yellow-50 text-yellow-700 border-yellow-100";
-    case 'PH': return "bg-red-50 text-red-700 border-red-100";
-    default: return "";
-  }
-}
-
-function SettingField({ label, value, onChange, type = 'text', options }: { label: string; value: any; onChange: (v: string) => void; type?: 'text' | 'number' | 'select' | 'time'; options?: string[] }) {
-  return (
-    <div className="space-y-2">
-      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</label>
-      {type === 'select' ? (
-        <select 
-          value={value} 
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full px-4 py-2 bg-white border border-slate-200 rounded text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
-        >
-          {options?.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-      ) : (
-        <input 
-          type={type} 
-          value={value} 
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full px-4 py-2 bg-white border border-slate-200 rounded text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
-        />
-      )}
-    </div>
   );
 }

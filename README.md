@@ -6,6 +6,7 @@ A professional, local-first workforce management and automated scheduling system
 
 ## 🌟 Key Features
 - **⚖️ Legal Compliance Engine**: Automated checks for maximum work hours (Art. 67), mandatory rest days (Art. 71), holiday compensation (Art. 73-74), and **transport-worker rules for drivers (Art. 88)**.
+- **📜 Legal Variables Tab**: All compliance caps — daily / weekly hours, hazardous limits, driver caps, OT multipliers — visible in a single tab with the governing article tagged on each value. Edit a cap and both the compliance engine and the auto-scheduler update immediately.
 - **🚚 Driver / Transport Mode**: Mark personnel as Drivers and have them scheduled under stricter caps — 9h daily / 56h weekly, 4.5h continuous-driving cap, 11h min daily rest. Configurable per fleet.
 - **🔄 Rotating Rest Day**: Toggle "No Fixed Rest Day" on any employee — the auto-scheduler rotates their off across the week so weekend coverage is shared fairly between staff.
 - **🤖 Intelligent Auto-Scheduler**: Fills your shop layout stations automatically based on employee eligibility, role, category, and legal limits.
@@ -13,18 +14,32 @@ A professional, local-first workforce management and automated scheduling system
 - **🔒 Privacy First**: 100% Local data storage, server bound to `127.0.0.1` only, atomic writes prevent corruption, factory reset requires explicit confirmation token. No cloud dependencies, no tracking.
 - **💾 One-Click Backup / Restore**: Export and import full JSON snapshots of all months, employees, shifts, stations, and config.
 - **📄 Professional Reporting**: One-click PDF compliance reports and CSV payroll drafts.
+- **🔐 Verifiable Builds**: Every release ships with a `SHA256SUMS.txt` so you can confirm the installer is byte-identical to what GitHub Actions built from this open-source code.
 
 ## 🚀 Quick Start (Recommended)
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/Iraqi-Workplace---Vibecoded-apps/releases)** page on GitHub.
-2. Under the **latest release (v1.2.0)**, scroll down to the **Assets** section.
-3. Download the `Iraqi-Labor-Scheduler-Setup-1.2.0.exe` file.
-4. Double-click the downloaded `.exe` file to install the application.
-5. Open the app from your **Desktop Shortcut**.
+2. Under the **latest release (v1.3.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-1.3.0.exe` **and** `SHA256SUMS.txt`.
+4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
+   ```powershell
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-1.3.0.exe
+   ```
+   Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
+5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
 
-> [!NOTE]
-> **Windows Security Notice**: Because this is an independent open-source project, Windows may show a "SmartScreen" warning. Click **"More Info"** and then **"Run anyway"** to proceed. This is normal for custom software.
+### About the Windows SmartScreen / Chrome warning
+
+Windows SmartScreen and Chrome will display a warning ("Windows protected your PC" / "may harm your device") when you download or run the installer. **This is expected for unsigned software** — the warning is triggered by the absence of a Microsoft-trusted Authenticode signature, not by anything malicious in the app.
+
+To proceed safely:
+
+- **Verify the SHA-256 hash first** (step 4 above). If the hash matches what GitHub published, the installer is byte-identical to what was built from the open-source code in this repository.
+- In Chrome, click the down-arrow next to the file in the download bar → **Keep**.
+- In the SmartScreen dialog, click **More info** → **Run anyway**.
+
+We're in the process of applying for free open-source code signing through [**SignPath Foundation**](https://signpath.org/about). Once approved, releases will be Authenticode-signed and the warning will go away after enough installs build SmartScreen reputation. Until then, hash verification is the right way to confirm the installer's integrity.
 
 ---
 

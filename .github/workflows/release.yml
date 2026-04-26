@@ -37,6 +37,28 @@ jobs:
         uses: samuelmeuli/action-electron-builder@v1
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+          # Once a code-signing cert is provisioned (e.g. via SignPath Foundation
+          # for OSS), set CSC_LINK and CSC_KEY_PASSWORD repository secrets and
+          # electron-builder will sign automatically. Until then the installer
+          # ships unsigned and Windows SmartScreen will display a warning.
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release: true
+
+      - name: Publish SHA-256 hashes
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path dist-electron -Filter "*.exe" -File
+          $sha = foreach ($f in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
+            "$hash  $($f.Name)"
+          }
+          $sha | Out-File -FilePath dist-electron/SHA256SUMS.txt -Encoding utf8
+          Write-Host "Generated SHA256SUMS.txt:"
+          Get-Content dist-electron/SHA256SUMS.txt
+
+      - name: Upload SHA256SUMS to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-electron/SHA256SUMS.txt
+          token: ${{ secrets.GITHUB_TOKEN }}

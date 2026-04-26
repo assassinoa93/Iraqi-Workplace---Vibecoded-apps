@@ -1,7 +1,15 @@
 {
   "name": "iraqi-labor-scheduler",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.3.0",
+  "description": "Local-first workforce scheduler tailored for Iraqi Labor Law (Art. 67-74, 88).",
+  "author": {
+    "name": "Iraqi Labor Scheduler Project",
+    "email": "assassinmachete@gmail.com",
+    "url": "https://github.com/assassinoa93/Iraqi-Workplace---Vibecoded-apps"
+  },
+  "homepage": "https://github.com/assassinoa93/Iraqi-Workplace---Vibecoded-apps",
+  "license": "Apache-2.0",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -48,6 +56,7 @@
   "build": {
     "appId": "com.iraqi.labor.scheduler",
     "productName": "Iraqi Labor Scheduler",
+    "copyright": "Copyright © 2026 Iraqi Labor Scheduler Project. Apache-2.0 licensed.",
     "directories": {
       "output": "dist-electron"
     },
@@ -60,13 +69,17 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "publisherName": "Iraqi Labor Scheduler Project",
+      "legalTrademarks": "Iraqi Labor Scheduler",
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Iraqi Labor Scheduler"
+      "shortcutName": "Iraqi Labor Scheduler",
+      "uninstallDisplayName": "Iraqi Labor Scheduler"
     }
   }
 }
