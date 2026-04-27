@@ -388,6 +388,98 @@ export const en: Dict = {
   'common.more': 'more',
   'common.yes': 'Yes',
   'common.no': 'No',
+
+  // Employee modal — gender, preferences, annual leave
+  'modal.employee.field.gender': 'Gender',
+  'modal.employee.gender.unset': 'Not specified',
+  'modal.employee.gender.male': 'Male',
+  'modal.employee.gender.female': 'Female',
+  'modal.employee.gender.note': 'Optional. When set to Female, the maternity panel below appears and Art. 86 night-work checks (if enabled in Variables) apply to industrial shifts.',
+  'modal.employee.preferences.title': 'Shift Preferences (Auto-Scheduler Bias)',
+  'modal.employee.preferences.note': 'Soft preference: the auto-scheduler tries to honor it at the legal-strictness level but never sacrifices coverage. Avoided shifts are skipped when alternatives exist.',
+  'modal.employee.preferences.preferred': 'Preferred',
+  'modal.employee.preferences.avoid': 'Avoid',
+  'modal.employee.annual.title': 'Annual / Approved Leave',
+  'modal.employee.annual.note': 'Set both dates to mark an approved vacation window. The auto-scheduler stamps AL on those days and skips the employee for assignments. The numeric balance above is tracked separately.',
+  'modal.employee.annual.start': 'Leave Start (YYYY-MM-DD)',
+  'modal.employee.annual.end': 'Leave End (YYYY-MM-DD)',
+
+  // Variables tab — operating window + Art. 86
+  'variables.operatingWindow.note': 'Default opening / closing hours used when no per-day override is set.',
+  'variables.operatingWindow.defaultOpen': 'Default Opening Time',
+  'variables.operatingWindow.defaultClose': 'Default Closing Time',
+  'variables.operatingWindow.perDayHeader': 'Per-Day Override (optional)',
+  'variables.operatingWindow.perDayNote': 'Tick a day to override the default. Useful when peak days run later than weekdays — e.g. Friday closes at 02:00 instead of 23:00.',
+  'variables.art86.title': "Art. 86 — Women's Night Work",
+  'variables.art86.subtitle': 'Industrial undertakings: women may not work between the configured night hours.',
+  'variables.art86.enable': 'Enforce Art. 86 night-work cap',
+  'variables.art86.start': 'Night Window Start',
+  'variables.art86.end': 'Night Window End',
+  'variables.art86.note': 'When enabled, any shift flagged as industrial that overlaps the configured window and is assigned to a female employee surfaces as an Art. 86 violation. The auto-scheduler treats it as a hard rule at legal / continuity levels.',
+
+  // Company switcher
+  'company.header': 'Companies / Branches',
+  'company.add': 'Add Company',
+  'company.rename': 'Rename',
+  'company.delete': 'Delete',
+  'company.newPlaceholder': 'Company name…',
+  'company.renamePlaceholder': 'New name…',
+  'company.cannotDelete.title': 'Cannot remove last company',
+  'company.cannotDelete.body': 'At least one company must remain. Add another company first, then remove this one.',
+  'company.confirmDelete.title': 'Remove Company',
+  'company.confirmDelete.body': 'Permanently delete {name} and all of its employees, schedules, stations, and config? This cannot be undone unless you have a backup.',
+
+  // Simulation mode
+  'sim.toolbar.enter': 'Simulation',
+  'sim.toolbar.exit': 'Exit Simulation',
+  'sim.toolbar.statusLabel': 'Sandbox · not saving',
+  'sim.banner.eyebrow': 'Sim Mode',
+  'sim.banner.title': 'Sandbox — changes are not persisted',
+  'sim.metric.workforce': 'Workforce',
+  'sim.metric.coverage': 'Coverage %',
+  'sim.metric.otHours': 'OT Hours',
+  'sim.metric.otPay': 'OT Pay (IQD)',
+  'sim.metric.violations': 'Violations',
+  'sim.delta.unchanged': 'unchanged',
+  'sim.action.reset': 'Reset',
+  'sim.action.apply': 'Apply',
+  'sim.action.exit': 'Discard',
+  'sim.locked.companyChange': 'Exit simulation mode before switching companies — the sandbox only covers the company you started with.',
+
+  // Coverage-gap hint toast
+  'hint.coverage.eyebrow': 'Coverage Hint',
+  'hint.coverage.title': 'Day {day} · {station} now has a gap',
+  'hint.coverage.body': 'Pick a replacement to absorb the open slot, or keep the gap if intentional.',
+  'hint.coverage.tag.off': 'Off-day',
+  'hint.coverage.noCandidates': 'No eligible candidates available.',
+  'hint.coverage.override': "Click 'Keep gap' to leave it open.",
+  'hint.coverage.keepGap': 'Keep gap',
+
+  // Schedule staleness banner
+  'schedule.stale.header': 'Schedule contains broken references',
+  'schedule.stale.body': '{emps} employees, {shifts} shift codes, and {stations} stations referenced in this month\'s schedule no longer exist.',
+  'schedule.stale.rerun': 'Re-run Auto-Scheduler',
+
+  // Info / replacement-for-alert dialogs
+  'info.notice.title': 'Notice',
+  'info.error.title': 'Action failed',
+  'info.factoryReset.body': 'All data has been cleared on the server and in the browser. The page will reload now.',
+  'info.factoryReset.failed': 'Reset failed. Please try again or check the server logs.',
+  'info.shutdown.body': 'Server is shutting down. You can now close this window.',
+  'info.seed.title': 'Sample Data Loaded',
+  'info.seed.body': '35 Operators and 12 Cashiers seeded. Use Auto-Scheduler to populate the month.',
+  'info.csvImport.title': 'CSV Import Complete',
+  'info.csvImport.body': 'Successfully imported {count} personnel records.',
+  'info.backup.invalidFile': 'Please select a valid .json backup file.',
+  'info.backup.parseFailed': 'Error parsing backup file: {msg}',
+
+  // Dashboard FTE forecast
+  'dashboard.kpi.fteForecast': 'Recommended Hires',
+
+  // Post-update toast
+  'info.updated.title': 'Updated to v{version}',
+  'info.updated.body': 'Iraqi Labor Scheduler was updated from v{from} to v{to}.\n\nA snapshot of your data was saved here before the new version started:\n{snapshot}\n\nYou can delete the snapshot later if everything looks fine. The five most recent snapshots are kept automatically.',
+  'info.updated.snapshotMissing': '(no snapshot — the data folder was empty)',
 };
 
 // Arabic translations of every key. Strings the app doesn't yet translate
@@ -771,6 +863,98 @@ export const ar: Dict = {
   'common.more': 'المزيد',
   'common.yes': 'نعم',
   'common.no': 'لا',
+
+  // Employee modal — gender, preferences, annual leave
+  'modal.employee.field.gender': 'الجنس',
+  'modal.employee.gender.unset': 'غير محدد',
+  'modal.employee.gender.male': 'ذكر',
+  'modal.employee.gender.female': 'أنثى',
+  'modal.employee.gender.note': 'اختياري. عند تحديد "أنثى" تظهر لوحة الأمومة أدناه، وتُطبَّق فحوصات المادة ٨٦ (إن كانت مفعّلة في المتغيرات) على ورديات العمل الصناعي.',
+  'modal.employee.preferences.title': 'تفضيلات الورديات (انحياز المُجدوِل التلقائي)',
+  'modal.employee.preferences.note': 'تفضيل مرن: يحاول المُجدوِل احترامه عند مستوى الالتزام القانوني لكنه لا يُضحّي بالتغطية. الورديات في قائمة "تجنّب" تُستثنى عند توفر بدائل.',
+  'modal.employee.preferences.preferred': 'مفضّلة',
+  'modal.employee.preferences.avoid': 'تجنّب',
+  'modal.employee.annual.title': 'إجازة سنوية / معتمدة',
+  'modal.employee.annual.note': 'حدد التاريخين لتعيين فترة إجازة معتمدة. سيضع المُجدوِل التلقائي AL في تلك الأيام ويتخطى الموظف. الرصيد الرقمي أعلاه يُتتَبَّع بشكل منفصل.',
+  'modal.employee.annual.start': 'بداية الإجازة (YYYY-MM-DD)',
+  'modal.employee.annual.end': 'نهاية الإجازة (YYYY-MM-DD)',
+
+  // Variables tab — operating window + Art. 86
+  'variables.operatingWindow.note': 'ساعات الافتتاح / الإغلاق الافتراضية المستخدمة عند عدم وجود تجاوز يومي.',
+  'variables.operatingWindow.defaultOpen': 'وقت الافتتاح الافتراضي',
+  'variables.operatingWindow.defaultClose': 'وقت الإغلاق الافتراضي',
+  'variables.operatingWindow.perDayHeader': 'تجاوز يومي (اختياري)',
+  'variables.operatingWindow.perDayNote': 'فعّل أي يوم لتجاوز الإعداد الافتراضي. مفيد عندما تمتد ساعات العمل في أيام الذروة — مثلاً إغلاق يوم الجمعة في الساعة ٢:٠٠ بدل ١١:٠٠.',
+  'variables.art86.title': 'المادة ٨٦ — العمل الليلي للنساء',
+  'variables.art86.subtitle': 'في المنشآت الصناعية: لا يجوز تشغيل النساء بين ساعات الليل المحددة.',
+  'variables.art86.enable': 'تطبيق سقف العمل الليلي بحسب المادة ٨٦',
+  'variables.art86.start': 'بداية النافذة الليلية',
+  'variables.art86.end': 'نهاية النافذة الليلية',
+  'variables.art86.note': 'عند التفعيل، أي وردية صناعية تتداخل مع النافذة المضبوطة وتُسنَد لموظفة تظهر كمخالفة للمادة ٨٦. يعتبرها المُجدوِل التلقائي قاعدة صارمة عند مستويي الالتزام والاستمرارية.',
+
+  // Company switcher
+  'company.header': 'الشركات / الفروع',
+  'company.add': 'إضافة شركة',
+  'company.rename': 'إعادة تسمية',
+  'company.delete': 'حذف',
+  'company.newPlaceholder': 'اسم الشركة…',
+  'company.renamePlaceholder': 'الاسم الجديد…',
+  'company.cannotDelete.title': 'لا يمكن إزالة آخر شركة',
+  'company.cannotDelete.body': 'يجب أن تبقى شركة واحدة على الأقل. أضف شركة أخرى أولاً، ثم احذف هذه.',
+  'company.confirmDelete.title': 'إزالة شركة',
+  'company.confirmDelete.body': 'حذف {name} نهائيًا مع كل موظفيها وجداولها ومحطاتها وإعداداتها؟ لا يمكن التراجع إلا إذا كانت لديك نسخة احتياطية.',
+
+  // Simulation mode
+  'sim.toolbar.enter': 'محاكاة',
+  'sim.toolbar.exit': 'إنهاء المحاكاة',
+  'sim.toolbar.statusLabel': 'وضع تجريبي · لا حفظ',
+  'sim.banner.eyebrow': 'وضع المحاكاة',
+  'sim.banner.title': 'بيئة تجريبية — التغييرات لا تُحفظ',
+  'sim.metric.workforce': 'القوى العاملة',
+  'sim.metric.coverage': '٪ التغطية',
+  'sim.metric.otHours': 'ساعات إضافية',
+  'sim.metric.otPay': 'أجر الإضافي (دينار)',
+  'sim.metric.violations': 'المخالفات',
+  'sim.delta.unchanged': 'بدون تغيير',
+  'sim.action.reset': 'استعادة',
+  'sim.action.apply': 'تطبيق',
+  'sim.action.exit': 'تجاهل',
+  'sim.locked.companyChange': 'أنهِ وضع المحاكاة قبل تبديل الشركات — البيئة التجريبية تغطي فقط الشركة التي بدأت معها.',
+
+  // Coverage-gap hint toast
+  'hint.coverage.eyebrow': 'تنبيه تغطية',
+  'hint.coverage.title': 'اليوم {day} · {station} بات يعاني فجوة',
+  'hint.coverage.body': 'اختر بديلاً لسد الفراغ، أو أبقِ الفجوة إن كان ذلك مقصودًا.',
+  'hint.coverage.tag.off': 'يوم راحة',
+  'hint.coverage.noCandidates': 'لا يوجد مرشحون مؤهلون.',
+  'hint.coverage.override': 'انقر "إبقاء الفجوة" لتركها مفتوحة.',
+  'hint.coverage.keepGap': 'إبقاء الفجوة',
+
+  // Schedule staleness banner
+  'schedule.stale.header': 'الجدول يحتوي مراجع غير صالحة',
+  'schedule.stale.body': '{emps} موظفين و{shifts} رموز ورديات و{stations} محطات مُشار إليها في جدول هذا الشهر لم تعد موجودة.',
+  'schedule.stale.rerun': 'إعادة تشغيل المُجدوِل التلقائي',
+
+  // Info dialogs
+  'info.notice.title': 'إشعار',
+  'info.error.title': 'تعذّر تنفيذ الإجراء',
+  'info.factoryReset.body': 'تم مسح كل البيانات على الخادم وفي المتصفح. ستتم إعادة تحميل الصفحة الآن.',
+  'info.factoryReset.failed': 'فشل إعادة الضبط. حاول مرة أخرى أو تحقق من سجلات الخادم.',
+  'info.shutdown.body': 'يجري إيقاف تشغيل الخادم. يمكنك إغلاق النافذة الآن.',
+  'info.seed.title': 'تم تحميل بيانات نموذجية',
+  'info.seed.body': 'تم بذر ٣٥ مشغّلاً و١٢ صرّافاً. استخدم الجدولة التلقائية لملء الشهر.',
+  'info.csvImport.title': 'اكتمل استيراد CSV',
+  'info.csvImport.body': 'تم استيراد {count} سجل موظف بنجاح.',
+  'info.backup.invalidFile': 'يرجى اختيار ملف نسخة احتياطية بصيغة .json.',
+  'info.backup.parseFailed': 'خطأ في قراءة ملف النسخة الاحتياطية: {msg}',
+
+  // Dashboard FTE forecast
+  'dashboard.kpi.fteForecast': 'التوظيف الموصى به',
+
+  // Post-update toast
+  'info.updated.title': 'تم التحديث إلى الإصدار {version}',
+  'info.updated.body': 'تم تحديث مُجدوِل العمل العراقي من الإصدار {from} إلى {to}.\n\nتم حفظ نسخة احتياطية لبياناتك قبل بدء الإصدار الجديد في:\n{snapshot}\n\nيمكنك حذف هذه النسخة لاحقًا إن سار كل شيء على ما يرام. يحتفظ النظام تلقائيًا بأحدث خمس نسخ.',
+  'info.updated.snapshotMissing': '(لا توجد نسخة — مجلد البيانات كان فارغًا)',
 };
 
 const DICTS: Record<Locale, Dict> = { en, ar };

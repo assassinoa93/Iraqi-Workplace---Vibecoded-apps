@@ -1,7 +1,7 @@
 {
   "name": "iraqi-labor-scheduler",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Local-first workforce scheduler tailored for Iraqi Labor Law (Art. 67-74, 88).",
   "author": {
     "name": "Iraqi Labor Scheduler Project",
@@ -21,8 +21,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:server": "node scripts/build-server.cjs",
+    "icons": "node scripts/build-icon.cjs",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://127.0.0.1:3000 && electron .\"",
-    "electron:build": "npm run lint && npm run build && npm run build:server && electron-builder"
+    "electron:build": "npm run lint && npm run icons && npm run build && npm run build:server && electron-builder"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -52,6 +53,8 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.20.2",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
     "tsx": "^4.10.2",
     "typescript": "^5.2.2",
     "vitest": "^4.1.5"
@@ -79,10 +82,18 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "allowElevation": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
       "shortcutName": "Iraqi Labor Scheduler",
-      "uninstallDisplayName": "Iraqi Labor Scheduler"
+      "uninstallDisplayName": "Iraqi Labor Scheduler",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "displayLanguageSelector": false,
+      "differentialPackage": false,
+      "include": "build/installer.nsh"
     }
   }
 }

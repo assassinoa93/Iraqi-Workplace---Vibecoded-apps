@@ -1,6 +1,17 @@
 import { getDaysInMonth } from 'date-fns';
-import { Employee, Shift, Station, PublicHoliday, Config } from '../types';
+import { Employee, Shift, Station, PublicHoliday, Config, Company } from '../types';
 import { baseHourlyRate } from './payroll';
+
+// Default company id — kept stable across versions so legacy single-company
+// backups and on-disk migrations land in the same slot. Mirrored on the
+// server (server.ts).
+export const DEFAULT_COMPANY_ID = 'co-default';
+
+// Initial companies list seeded on first launch. Single entry — users can
+// add more via the company switcher in the sidebar.
+export const INITIAL_COMPANIES: Company[] = [
+  { id: DEFAULT_COMPANY_ID, name: 'Workforce Unit', color: '#2563eb' },
+];
 
 // Synthetic seed config used to pre-compute the hourly rate for the demo
 // employees below. Real users get their config from `DEFAULT_CONFIG` (which

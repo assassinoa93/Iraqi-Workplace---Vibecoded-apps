@@ -1,5 +1,6 @@
 import { Employee, Shift, PublicHoliday, Config, Violation, Schedule } from '../types';
 import { differenceInHours, parse, addDays, format } from 'date-fns';
+import { parseHour } from './time';
 
 // Driver defaults — used when Config doesn't yet carry driver fields (older saves).
 const DRIVER_DEFAULTS = {
@@ -11,6 +12,8 @@ const DRIVER_DEFAULTS = {
 };
 
 const RAMADAN_DEFAULT_DAILY_CAP = 6;
+const ART86_DEFAULT_NIGHT_START = '22:00';
+const ART86_DEFAULT_NIGHT_END = '07:00';
 
 const isDriver = (emp: Employee) => emp.category === 'Driver';
 
@@ -26,6 +29,39 @@ const isOnMaternityLeave = (emp: Employee, dateStr: string): boolean => {
 const isOnSickLeave = (emp: Employee, dateStr: string): boolean => {
   if (!emp.sickLeaveStart || !emp.sickLeaveEnd) return false;
   return dateStr >= emp.sickLeaveStart && dateStr <= emp.sickLeaveEnd;
+};
+
+// Annual / approved-vacation leave window. Same date-range semantics as
+// maternity / sick.
+const isOnAnnualLeave = (emp: Employee, dateStr: string): boolean => {
+  if (!emp.annualLeaveStart || !emp.annualLeaveEnd) return false;
+  return dateStr >= emp.annualLeaveStart && dateStr <= emp.annualLeaveEnd;
+};
+
+// True if the (start, end) interval of a shift overlaps the configured
+// Art. 86 night-work window. Handles the standard 22:00→07:00 overnight
+// wrap by treating the window as a union of [start, 24) and [0, end).
+const shiftOverlapsNightWindow = (shiftStart: string, shiftEnd: string, nightStart: string, nightEnd: string): boolean => {
+  const sH = parseHour(shiftStart);
+  const eH = parseHour(shiftEnd);
+  const nS = parseHour(nightStart);
+  const nE = parseHour(nightEnd);
+  // Build the union of hours covered by the shift (over 24h, with normal
+  // <= ranges) and the night window (which may wrap past midnight).
+  const shiftHours: number[] = [];
+  if (sH < eH) {
+    for (let h = sH; h < eH; h++) shiftHours.push(h);
+  } else {
+    // Edge case: shift wraps past midnight. Not used by the seed data but
+    // handled defensively in case a user defines a 22:00→06:00 shift.
+    for (let h = sH; h < 24; h++) shiftHours.push(h);
+    for (let h = 0; h < eH; h++) shiftHours.push(h);
+  }
+  const inNight = (h: number) => {
+    if (nS < nE) return h >= nS && h < nE;
+    return h >= nS || h < nE;
+  };
+  return shiftHours.some(inNight);
 };
 
 // Cheap, focused check used by the paint-mode warning toast. Mirrors the
@@ -54,6 +90,9 @@ export function previewAssignmentWarnings(
   }
   if (isOnSickLeave(emp, dateStr)) {
     warnings.push(`On sick leave (${emp.sickLeaveStart} → ${emp.sickLeaveEnd}) — Art. 84`);
+  }
+  if (isOnAnnualLeave(emp, dateStr)) {
+    warnings.push(`On annual leave (${emp.annualLeaveStart} → ${emp.annualLeaveEnd})`);
   }
 
   // Only the work-shift checks apply when a non-work code is being painted
@@ -134,6 +173,15 @@ export function previewAssignmentWarnings(
     warnings.push(`Working a public holiday — Art. 74 requires an OT or PH shift code for double pay`);
   }
 
+  // Art. 86 — women's night work in industrial undertakings.
+  if (config.enforceArt86NightWork && emp.gender === 'F' && shift.isIndustrial) {
+    const nightStart = config.art86NightStart || ART86_DEFAULT_NIGHT_START;
+    const nightEnd = config.art86NightEnd || ART86_DEFAULT_NIGHT_END;
+    if (shiftOverlapsNightWindow(shift.start, shift.end, nightStart, nightEnd)) {
+      warnings.push(`Art. 86 — women may not work in industrial undertakings between ${nightStart}–${nightEnd}`);
+    }
+  }
+
   return warnings;
 }
 
@@ -144,13 +192,30 @@ const isRamadanDay = (config: Config, dateStr: string): boolean => {
   return dateStr >= config.ramadanStart && dateStr <= config.ramadanEnd;
 };
 
+// Look up the previous month's schedule key under the convention used by App.tsx
+// (`scheduler_schedule_${year}_${month}`). Returns undefined when the input
+// year/month wraps below the calendar floor.
+const prevMonthKey = (year: number, month: number): string => {
+  const d = new Date(year, month - 2, 1);
+  return `scheduler_schedule_${d.getFullYear()}_${d.getMonth() + 1}`;
+};
+
+const prevMonthDays = (year: number, month: number): number => {
+  return new Date(year, month - 1, 0).getDate();
+};
+
 export class ComplianceEngine {
+  // The optional `allSchedules` arg lets the rolling-7-day window peek at the
+  // previous month so the cap doesn't reset arbitrarily on day 1. When omitted
+  // the engine behaves as before (current month only) — keeps the existing
+  // call sites and tests working without changes.
   static check(
     employees: Employee[],
     shifts: Shift[],
     holidays: PublicHoliday[],
     config: Config,
-    schedule: Schedule
+    schedule: Schedule,
+    allSchedules?: Record<string, Schedule>,
   ): Violation[] {
     const violations: Violation[] = [];
     const shiftMap = new Map(shifts.map(s => [s.code, s]));
@@ -165,9 +230,17 @@ export class ComplianceEngine {
     };
 
     const ramadanCap = config.ramadanDailyHrsCap ?? RAMADAN_DEFAULT_DAILY_CAP;
+    const art86NightStart = config.art86NightStart || ART86_DEFAULT_NIGHT_START;
+    const art86NightEnd = config.art86NightEnd || ART86_DEFAULT_NIGHT_END;
+
+    // Cross-month context for the rolling-7 window. We pull the *last 6 days*
+    // of the previous month so day 1 of the current month can see them.
+    const prevSchedule = allSchedules?.[prevMonthKey(config.year, config.month)];
+    const prevDays = prevMonthDays(config.year, config.month);
 
     employees.forEach(emp => {
       const empSchedule = schedule[emp.empId] || {};
+      const empPrevSchedule = prevSchedule?.[emp.empId] || {};
       const days = Array.from({ length: config.daysInMonth }, (_, i) => i + 1);
       const driver = isDriver(emp);
       const dateStrFor = (day: number) => format(new Date(config.year, config.month - 1, day), 'yyyy-MM-dd');
@@ -179,7 +252,7 @@ export class ComplianceEngine {
           const shiftCode = entry?.shiftCode;
           const shift = shiftMap.get(shiftCode || '');
           if (!shift || !shift.isWork) return;
-          // Maternity / sick leave days: skip cap checks entirely. The
+          // Maternity / sick / annual leave days: skip cap checks. The
           // auto-scheduler shouldn't have placed work on these days, but if a
           // manual edit does, the violation surfaces under a dedicated rule.
           const dateStr = dateStrFor(day);
@@ -200,6 +273,16 @@ export class ComplianceEngine {
               rule: "Worked during sick leave",
               article: "(Art. 84)",
               message: "Employee is on sick leave but has a work shift assigned.",
+            });
+            return;
+          }
+          if (isOnAnnualLeave(emp, dateStr)) {
+            violations.push({
+              empId: emp.empId,
+              day,
+              rule: "Worked during annual leave",
+              article: "(Annual Leave)",
+              message: "Employee is on approved annual leave but has a work shift assigned.",
             });
             return;
           }
@@ -244,6 +327,19 @@ export class ComplianceEngine {
                 message: `Driver shift of ${shift.durationHrs}hrs exceeds ${driverCfg.continuousDrivingHrsCap}hrs continuous-driving cap with break <30min.`
               });
             }
+
+            // Rule: Art. 86 — women's night work in industrial undertakings.
+            if (config.enforceArt86NightWork && emp.gender === 'F' && shift.isIndustrial) {
+              if (shiftOverlapsNightWindow(shift.start, shift.end, art86NightStart, art86NightEnd)) {
+                violations.push({
+                  empId: emp.empId,
+                  day,
+                  rule: "Women's night work in industrial undertakings",
+                  article: "(Art. 86)",
+                  message: `Industrial shift overlaps the protected ${art86NightStart}–${art86NightEnd} night window.`,
+                });
+              }
+            }
           }
         });
       }
@@ -278,17 +374,37 @@ export class ComplianceEngine {
         }
       }
 
-      // Prepare work sequence
-      const workData = days.map(day => {
-        const entry = empSchedule[day];
-        const shiftCode = entry?.shiftCode;
-        const shift = shiftMap.get(shiftCode || '');
-        return {
-          day,
-          hrs: shift?.isWork ? shift.durationHrs : 0,
-          isWork: !!(shift?.isWork),
-        };
-      });
+      // Prepare work sequence — current month, plus the trailing 6 days of
+      // the previous month (used only when allSchedules supplies them) so the
+      // rolling-7 window doesn't artificially reset at month boundaries.
+      const prevTail: Array<{ day: number; hrs: number; isWork: boolean }> = [];
+      if (prevSchedule) {
+        for (let d = Math.max(1, prevDays - 5); d <= prevDays; d++) {
+          const entry = empPrevSchedule[d];
+          const shift = shiftMap.get(entry?.shiftCode || '');
+          // We index these by negative day numbers so they never collide with
+          // the current month's positive day numbers; only the rolling-window
+          // logic ever inspects them.
+          prevTail.push({
+            day: d - prevDays,  // -5..0
+            hrs: shift?.isWork ? shift.durationHrs : 0,
+            isWork: !!(shift?.isWork),
+          });
+        }
+      }
+      const workData = [
+        ...prevTail,
+        ...days.map(day => {
+          const entry = empSchedule[day];
+          const shiftCode = entry?.shiftCode;
+          const shift = shiftMap.get(shiftCode || '');
+          return {
+            day,
+            hrs: shift?.isWork ? shift.durationHrs : 0,
+            isWork: !!(shift?.isWork),
+          };
+        }),
+      ];
 
       // Rule: Weekly hours cap (Art. 70 / Art. 88 for drivers)
       // Rule: Weekly rest day (Art. 72)
@@ -298,6 +414,12 @@ export class ComplianceEngine {
           const totalHrs = window.reduce((sum, d) => sum + d.hrs, 0);
           const hasRest = window.some(d => !d.isWork);
 
+          // Anchor the violation on the first day of the window that lives in
+          // the current month. Skip windows that anchor in the previous month
+          // — we surfaced them only to count hours into the current month.
+          const anchor = window.find(w => w.day >= 1);
+          if (!anchor) continue;
+
           const weeklyCap = driver
             ? driverCfg.weeklyHrsCap
             : (emp.isHazardous ? config.hazardousWeeklyHrsCap : config.standardWeeklyHrsCap);
@@ -305,7 +427,7 @@ export class ComplianceEngine {
           if (totalHrs > weeklyCap) {
             violations.push({
               empId: emp.empId,
-              day: window[0].day,
+              day: anchor.day,
               rule: "Weekly hours cap",
               article: weeklyArticle,
               message: `7-day rolling total of ${totalHrs}hrs exceeds ${weeklyCap}hrs limit.`
@@ -313,13 +435,19 @@ export class ComplianceEngine {
           }
 
           if (!hasRest) {
-            violations.push({
-              empId: emp.empId,
-              day: window[6].day,
-              rule: "Weekly rest day",
-              article: "(Art. 72)",
-              message: "No rest day provided in a rolling 7-day period."
-            });
+            const last = window[window.length - 1];
+            // Only flag a missing rest day when the window's last day is in
+            // the current month — otherwise we'd duplicate violations the
+            // previous month already surfaced.
+            if (last.day >= 1) {
+              violations.push({
+                empId: emp.empId,
+                day: last.day,
+                rule: "Weekly rest day",
+                article: "(Art. 72)",
+                message: "No rest day provided in a rolling 7-day period."
+              });
+            }
           }
         }
       }
@@ -328,14 +456,14 @@ export class ComplianceEngine {
       const consecCap = driver ? driverCfg.maxConsecWorkDays : config.maxConsecWorkDays;
       const consecArticle = driver ? "(Art. 88)" : "(Art. 71 §5, 72)";
       let consecutive = 0;
-      workData.forEach((d, idx) => {
+      workData.forEach((d) => {
         if (d.isWork) {
           consecutive++;
         } else {
           consecutive = 0;
         }
 
-        if (consecutive > consecCap) {
+        if (consecutive > consecCap && d.day >= 1) {
           violations.push({
             empId: emp.empId,
             day: d.day,
@@ -372,11 +500,11 @@ export class ComplianceEngine {
     const seenMap = new Map<string, Violation>();
 
     violations.forEach(v => {
-      // Create a unique key for grouping. We include the message to ensure 
-      // different types of infractions of the same rule are still distinct 
+      // Create a unique key for grouping. We include the message to ensure
+      // different types of infractions of the same rule are still distinct
       // (e.g. Worked 10hrs vs Worked 12hrs), but identical repeated ones group.
       const key = `${v.empId}|${v.rule}|${v.article}|${v.message}`;
-      
+
       if (seenMap.has(key)) {
         const existing = seenMap.get(key)!;
         existing.count = (existing.count || 1) + 1;

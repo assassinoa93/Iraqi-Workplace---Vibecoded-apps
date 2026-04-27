@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Search, MousePointer2, Sparkles, Hash, AlertTriangle, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, MousePointer2, Sparkles, Hash, AlertTriangle, X, Wrench } from 'lucide-react';
 import { format, isWeekend } from 'date-fns';
 import { List, type RowComponentProps } from 'react-window';
 import { Employee, Shift, PublicHoliday, Config, Schedule } from '../types';
@@ -33,6 +33,14 @@ interface ScheduleTabProps {
   // recent paint was clean (or no paint has happened yet).
   paintWarnings: { empName: string; warnings: string[] } | null;
   onDismissPaintWarnings: () => void;
+  // Schedule staleness — references that no longer exist (employees,
+  // shifts, or stations were deleted after the schedule was built).
+  staleness?: {
+    isStale: boolean;
+    orphanedEmpIds: string[];
+    orphanedShiftCodes: string[];
+    orphanedStationIds: string[];
+  };
 }
 
 // Layout constants used by both the sticky header row and the virtualized
@@ -84,7 +92,7 @@ export function ScheduleTab({
   paintMode, setPaintMode, scheduleFilter, setScheduleFilter,
   scheduleRoleFilter, setScheduleRoleFilter, rosterRoles,
   scheduleUndoStack, prevMonth, nextMonth, onCellClick, onUndo, onRunAuto,
-  paintWarnings, onDismissPaintWarnings,
+  paintWarnings, onDismissPaintWarnings, staleness,
 }: ScheduleTabProps) {
   const { t } = useI18n();
 
@@ -200,6 +208,29 @@ export function ScheduleTab({
           to the outer horizontal scroll, so it stays visible while you scroll
           across the days.
       */}
+      {staleness?.isStale && (
+        <div role="alert" className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <Wrench className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-bold text-amber-900 uppercase tracking-widest mb-1">
+              {t('schedule.stale.header')}
+            </p>
+            <p className="text-[11px] text-amber-800">
+              {t('schedule.stale.body', {
+                emps: staleness.orphanedEmpIds.length,
+                shifts: staleness.orphanedShiftCodes.length,
+                stations: staleness.orphanedStationIds.length,
+              })}
+            </p>
+            <button
+              onClick={onRunAuto}
+              className="mt-2 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[10px] font-bold uppercase tracking-widest"
+            >
+              {t('schedule.stale.rerun')}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {paintMode && (
           <div className="bg-blue-600 text-white px-4 py-1 text-[9px] font-bold uppercase tracking-widest text-center shadow-lg border-b border-blue-700 animate-pulse">

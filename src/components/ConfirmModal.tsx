@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Info } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 import { useModalKeys } from '../lib/hooks';
 
@@ -15,13 +15,14 @@ interface ConfirmModalProps {
     onClick: () => void;
     icon?: any;
   };
+  // When true, renders as a single-button informational dialog (no destructive
+  // styling, no "Cancel" path). Used as the polished replacement for native
+  // `alert()` so messages respect RTL layout and the app's visual language.
+  infoOnly?: boolean;
 }
 
-export function ConfirmModal({ isOpen, onClose, onConfirm, title, message, extraAction }: ConfirmModalProps) {
+export function ConfirmModal({ isOpen, onClose, onConfirm, title, message, extraAction, infoOnly }: ConfirmModalProps) {
   const { t } = useI18n();
-  // Cancel gets initial focus so Esc/Enter both default to the safe path; the
-  // Confirm action requires deliberate intent because most uses of this
-  // dialog (deletes, factory reset) are destructive.
   const cancelRef = useModalKeys(isOpen, onClose) as React.RefObject<HTMLButtonElement>;
   if (!isOpen) return null;
   return (
@@ -32,11 +33,13 @@ export function ConfirmModal({ isOpen, onClose, onConfirm, title, message, extra
         className="bg-white w-full max-w-sm rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
       >
         <div className="p-6 text-center">
-          <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Trash2 className="w-6 h-6" />
+          <div className={infoOnly
+            ? "w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4"
+            : "w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4"}>
+            {infoOnly ? <Info className="w-6 h-6" /> : <Trash2 className="w-6 h-6" />}
           </div>
           <h3 className="text-lg font-bold text-slate-800 mb-2">{title}</h3>
-          <p className="text-sm text-slate-500 mb-6">{message}</p>
+          <p className="text-sm text-slate-500 mb-6 whitespace-pre-line">{message}</p>
 
           {extraAction && (
             <button
@@ -48,24 +51,34 @@ export function ConfirmModal({ isOpen, onClose, onConfirm, title, message, extra
             </button>
           )}
 
-          <div className="flex gap-3">
+          {infoOnly ? (
             <button
               ref={cancelRef}
-              onClick={onClose}
-              className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
+              onClick={() => { onConfirm(); onClose(); }}
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md"
             >
-              {t('modal.confirm.cancel')}
+              {t('action.confirm')}
             </button>
-            <button
-              onClick={() => {
-                onConfirm();
-                onClose();
-              }}
-              className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-red-700 transition-all shadow-md"
-            >
-              {t('modal.confirm.confirm')}
-            </button>
-          </div>
+          ) : (
+            <div className="flex gap-3">
+              <button
+                ref={cancelRef}
+                onClick={onClose}
+                className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
+              >
+                {t('modal.confirm.cancel')}
+              </button>
+              <button
+                onClick={() => {
+                  onConfirm();
+                  onClose();
+                }}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-red-700 transition-all shadow-md"
+              >
+                {t('modal.confirm.confirm')}
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
     </div>

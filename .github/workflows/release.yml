@@ -27,6 +27,13 @@ jobs:
       - name: Type Check
         run: npm run lint
 
+      - name: Build Windows Icon (.ico)
+        # Generates assets/icon.ico from the source PNG/JPEG. Must run before
+        # electron-builder packs the installer — otherwise the .exe falls back
+        # to the generic Electron icon. The .ico is gitignored on purpose
+        # (it's a build artifact) so CI regenerates it every release.
+        run: npm run icons
+
       - name: Build Web App
         run: npm run build
 

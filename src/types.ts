@@ -1,4 +1,5 @@
 export type EmployeeCategory = 'Standard' | 'Driver';
+export type Gender = 'M' | 'F';
 
 export interface Employee {
   empId: string;
@@ -28,6 +29,11 @@ export interface Employee {
   // driving limits than standard staff. Default 'Standard' for backward compat
   // with v1.1 data files.
   category?: EmployeeCategory;
+  // Optional gender. When 'F' the EmployeeModal shows the maternity panel and
+  // the compliance engine enforces Art. 86 (night work in industrial
+  // undertakings) on industrial-flagged shifts overlapping the configured
+  // night window. Missing → both behaviours skipped (backward compat).
+  gender?: Gender;
   // Maternity leave (Art. 87): 14 weeks paid leave for women. Stored as a
   // [start, end] inclusive YYYY-MM-DD range. The auto-scheduler skips the
   // employee on these days; the compliance engine treats each day as a
@@ -42,6 +48,17 @@ export interface Employee {
   // violation against the protected-leave rule.
   sickLeaveStart?: string;
   sickLeaveEnd?: string;
+  // Annual / approved vacation. Same date-range semantics. When active the
+  // auto-scheduler stamps `AL` on those days; manual work shifts during the
+  // window surface as a violation. The balance (annualLeaveBalance) is NOT
+  // automatically debited — it remains a tracked counter only.
+  annualLeaveStart?: string;
+  annualLeaveEnd?: string;
+  // Soft auto-scheduler preferences. The candidate-sort biases towards
+  // `preferredShiftCodes` and away from `avoidShiftCodes` at strictness level
+  // 1; levels 2 and 3 ignore preferences so coverage is never sacrificed.
+  preferredShiftCodes?: string[];
+  avoidShiftCodes?: string[];
 }
 
 export interface Station {
@@ -77,6 +94,11 @@ export interface PublicHoliday {
   isFixed?: boolean; // True for fixed-Gregorian holidays; false for lunar/movable
 }
 
+// Optional per-day-of-week opening/closing override. Days are 1=Sun..7=Sat to
+// match the rest of the app's day-of-week convention.
+export type DayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type OperatingHoursByDow = Partial<Record<DayOfWeek, { open: string; close: string }>>;
+
 export interface Config {
   company: string;
   year: number;
@@ -104,6 +126,11 @@ export interface Config {
   // New Operational Settings
   shopOpeningTime: string; // e.g. "11:00"
   shopClosingTime: string; // e.g. "23:00"
+  // Optional override per day of the week. Falls back to shopOpeningTime /
+  // shopClosingTime when an entry is missing. Used by the dashboard heatmap
+  // and coverage % metrics so peak-day stretches can have longer hours than
+  // the default. Stations still keep their own per-station opening hours.
+  operatingHoursByDayOfWeek?: OperatingHoursByDow;
   peakDays: number[]; // e.g. [5, 6, 7] for Thu, Fri, Sat (1=Sun)
   holidays?: PublicHoliday[]; // Current month's holidays
   // Labor Law Multipliers
@@ -117,6 +144,13 @@ export interface Config {
   ramadanStart?: string;          // YYYY-MM-DD
   ramadanEnd?: string;            // YYYY-MM-DD
   ramadanDailyHrsCap?: number;    // Default 6
+  // Art. 86 — women's night work in industrial undertakings. Disabled by
+  // default to avoid surprising users; toggle in the Variables tab. When
+  // enabled the compliance engine flags any shift assigned to a female
+  // employee that is `isIndustrial=true` and overlaps [start, end].
+  enforceArt86NightWork?: boolean;
+  art86NightStart?: string; // HH:mm — default '22:00'
+  art86NightEnd?: string;   // HH:mm — default '07:00'
 }
 
 export interface Violation {
@@ -134,3 +168,25 @@ export interface ScheduleEntry {
 }
 
 export type Schedule = Record<string, Record<number, ScheduleEntry>>;
+
+// Lightweight company / branch identifier. Each company owns its own roster,
+// shifts, stations, holidays, config, and schedules. The `audit.json` log is
+// shared across companies but every entry carries a companyId so callers can
+// filter.
+export interface Company {
+  id: string;
+  name: string;
+  color?: string;
+}
+
+// In-memory shape of a single company's full data. The persisted shape on
+// disk uses one Record<companyId, …> file per domain (employees.json,
+// shifts.json, etc.) for incremental atomic writes.
+export interface CompanyData {
+  employees: Employee[];
+  shifts: Shift[];
+  holidays: PublicHoliday[];
+  stations: Station[];
+  config: Config;
+  allSchedules: Record<string, Schedule>;
+}

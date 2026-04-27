@@ -1,8 +1,18 @@
 import React from 'react';
-import { ShieldCheck, Truck, Flame, Calendar, Clock, AlertCircle, Moon } from 'lucide-react';
-import { Config } from '../types';
+import { ShieldCheck, Truck, Flame, Calendar, Clock, AlertCircle, Moon, Users } from 'lucide-react';
+import { Config, DayOfWeek } from '../types';
 import { SettingField } from './Primitives';
 import { useI18n } from '../lib/i18n';
+
+const DOW_LABEL: Record<DayOfWeek, string> = {
+  1: 'Sunday',
+  2: 'Monday',
+  3: 'Tuesday',
+  4: 'Wednesday',
+  5: 'Thursday',
+  6: 'Friday',
+  7: 'Saturday',
+};
 
 interface Props {
   config: Config;
@@ -268,22 +278,109 @@ export function VariablesTab({ config, setConfig }: Props) {
           </div>
           <div className="flex-1">
             <h3 className="font-bold text-slate-800 text-sm tracking-tight">{t('variables.operatingWindow')}</h3>
-            <p className="text-[10px] text-slate-500 font-medium">Business hours used by the auto-scheduler when sizing shifts</p>
+            <p className="text-[10px] text-slate-500 font-medium">{t('variables.operatingWindow.note')}</p>
           </div>
         </div>
         <div className="p-5 grid grid-cols-2 gap-4">
           <SettingField
-            label="Shop Opening Time"
+            label={t('variables.operatingWindow.defaultOpen')}
             type="time"
             value={config.shopOpeningTime}
             onChange={v => setConfig(prev => ({ ...prev, shopOpeningTime: v }))}
           />
           <SettingField
-            label="Shop Closing Time"
+            label={t('variables.operatingWindow.defaultClose')}
             type="time"
             value={config.shopClosingTime}
             onChange={v => setConfig(prev => ({ ...prev, shopClosingTime: v }))}
           />
+        </div>
+        <div className="p-5 pt-0 space-y-2">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('variables.operatingWindow.perDayHeader')}</p>
+          <p className="text-[11px] text-slate-500 leading-relaxed">{t('variables.operatingWindow.perDayNote')}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            {([1,2,3,4,5,6,7] as DayOfWeek[]).map(dow => {
+              const override = config.operatingHoursByDayOfWeek?.[dow];
+              const enabled = !!override;
+              const open = override?.open ?? config.shopOpeningTime;
+              const close = override?.close ?? config.shopClosingTime;
+              const setOverride = (next: { open: string; close: string } | undefined) => {
+                setConfig(prev => {
+                  const map = { ...(prev.operatingHoursByDayOfWeek || {}) };
+                  if (next) map[dow] = next;
+                  else delete map[dow];
+                  return { ...prev, operatingHoursByDayOfWeek: map };
+                });
+              };
+              return (
+                <div key={dow} className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${enabled ? 'border-purple-200 bg-purple-50/40' : 'border-slate-200 bg-white'}`}>
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={e => {
+                      if (e.target.checked) setOverride({ open, close });
+                      else setOverride(undefined);
+                    }}
+                    aria-label={`Override hours for ${DOW_LABEL[dow]}`}
+                  />
+                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-widest min-w-[80px]">{DOW_LABEL[dow]}</span>
+                  <input
+                    type="time"
+                    value={open}
+                    disabled={!enabled}
+                    onChange={e => setOverride({ open: e.target.value, close })}
+                    className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono disabled:opacity-40"
+                  />
+                  <span className="text-[10px] text-slate-400 font-bold">→</span>
+                  <input
+                    type="time"
+                    value={close}
+                    disabled={!enabled}
+                    onChange={e => setOverride({ open, close: e.target.value })}
+                    className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono disabled:opacity-40"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="p-5 border-b border-slate-100 flex items-center gap-4">
+          <div className="w-10 h-10 bg-rose-50 text-rose-700 rounded-xl flex items-center justify-center">
+            <Users className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-bold text-slate-800 text-sm tracking-tight">{t('variables.art86.title')}</h3>
+            <p className="text-[10px] text-slate-500 font-medium">{t('variables.art86.subtitle')}</p>
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="enforce-art86"
+              checked={!!config.enforceArt86NightWork}
+              onChange={e => setConfig(prev => ({ ...prev, enforceArt86NightWork: e.target.checked }))}
+            />
+            <label htmlFor="enforce-art86" className="text-[11px] font-bold text-slate-700 uppercase tracking-widest">{t('variables.art86.enable')}</label>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <SettingField
+              label={t('variables.art86.start')}
+              type="time"
+              value={config.art86NightStart || '22:00'}
+              onChange={v => setConfig(prev => ({ ...prev, art86NightStart: v }))}
+            />
+            <SettingField
+              label={t('variables.art86.end')}
+              type="time"
+              value={config.art86NightEnd || '07:00'}
+              onChange={v => setConfig(prev => ({ ...prev, art86NightEnd: v }))}
+            />
+          </div>
+          <p className="text-[11px] text-slate-500 leading-relaxed">{t('variables.art86.note')}</p>
         </div>
       </div>
 

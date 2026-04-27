@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { Employee, Shift, Station, PublicHoliday, Config, Schedule } from '../types';
-import { parseHourBounds, type HourBounds } from './time';
+import { parseHourBounds, parseHour, type HourBounds } from './time';
 
 interface RunArgs {
   employees: Employee[];
@@ -9,12 +9,35 @@ interface RunArgs {
   holidays: PublicHoliday[];
   config: Config;
   isPeakDay: (day: number) => boolean;
+  // Optional: prior month's allSchedules. When provided, the rolling-7-day
+  // check at the start of the month sees the trailing days of the previous
+  // month so the cap doesn't reset arbitrarily on day 1.
+  allSchedules?: Record<string, Schedule>;
 }
 
 export interface RunResult {
   schedule: Schedule;
   updatedEmployees: Employee[];
 }
+
+const ART86_DEFAULT_NIGHT_START = '22:00';
+const ART86_DEFAULT_NIGHT_END = '07:00';
+
+const shiftOverlapsNightWindow = (shiftStart: string, shiftEnd: string, nightStart: string, nightEnd: string): boolean => {
+  const sH = parseHour(shiftStart);
+  const eH = parseHour(shiftEnd);
+  const nS = parseHour(nightStart);
+  const nE = parseHour(nightEnd);
+  const shiftHours: number[] = [];
+  if (sH < eH) {
+    for (let h = sH; h < eH; h++) shiftHours.push(h);
+  } else {
+    for (let h = sH; h < 24; h++) shiftHours.push(h);
+    for (let h = 0; h < eH; h++) shiftHours.push(h);
+  }
+  const inNight = (h: number) => (nS < nE ? h >= nS && h < nE : h >= nS || h < nE);
+  return shiftHours.some(inNight);
+};
 
 /**
  * Build a full month schedule by greedy day-by-day, hour-by-hour station fill.
@@ -29,7 +52,7 @@ export interface RunResult {
  * are governed by maxConsecWorkDays + the rolling-7-day weekly cap; the candidate
  * sort prefers those who recently rested, distributing rest naturally across the week.
  */
-export function runAutoScheduler({ employees, shifts, stations, holidays, config, isPeakDay }: RunArgs): RunResult {
+export function runAutoScheduler({ employees, shifts, stations, holidays, config, isPeakDay, allSchedules }: RunArgs): RunResult {
   const newSchedule: Schedule = {};
   const workShifts = shifts.filter(s => s.isWork);
 
@@ -49,6 +72,38 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
     .map(s => ({ shift: s, bounds: shiftBounds.get(s.code)! }))
     .sort((a, b) => b.shift.durationHrs - a.shift.durationHrs);
 
+  // Pre-compute the trailing-6 days of the previous month for each employee
+  // so the level-1 rolling-7 check at the start of the month doesn't ignore
+  // hours that are still inside the rolling window.
+  const prevMonthKey = (() => {
+    const d = new Date(config.year, config.month - 2, 1);
+    return `scheduler_schedule_${d.getFullYear()}_${d.getMonth() + 1}`;
+  })();
+  const prevDays = new Date(config.year, config.month - 1, 0).getDate();
+  const prevSchedule: Schedule = (allSchedules && allSchedules[prevMonthKey]) || {};
+  const carriedHoursForDay = (empId: string, day: number, addedHrs: number): number => {
+    // Sum hours already worked in the rolling-7 window ending on `day`. Includes
+    // up to (day-1) days of the current month plus carry-in from the prior month.
+    let rolling = addedHrs;
+    for (let d = Math.max(1, day - 6); d < day; d++) {
+      const entry = newSchedule[empId][d];
+      if (!entry) continue;
+      const s = shiftByCode.get(entry.shiftCode);
+      if (s) rolling += s.durationHrs;
+    }
+    if (day <= 6) {
+      // Pull carry-in from the previous month: days (prevDays - (5 - day))..prevDays
+      const carryStart = Math.max(1, prevDays - (6 - day));
+      for (let d = carryStart; d <= prevDays; d++) {
+        const entry = prevSchedule[empId]?.[d];
+        if (!entry) continue;
+        const s = shiftByCode.get(entry.shiftCode);
+        if (s?.isWork) rolling += s.durationHrs;
+      }
+    }
+    return rolling;
+  };
+
   const consecutiveWork = new Map<string, number>();
   const totalHoursWorked = new Map<string, number>();
   const usedHolidayBankThisMonth = new Map<string, number>();
@@ -57,7 +112,17 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
 
   employees.forEach(emp => {
     newSchedule[emp.empId] = {};
-    consecutiveWork.set(emp.empId, 0);
+    // Seed consecutiveWork with the trailing run from the previous month so a
+    // 5-in-a-row finish on day 31 of the prior month is honored on day 1.
+    let runIn = 0;
+    const empPrev = prevSchedule[emp.empId] || {};
+    for (let d = prevDays; d >= 1; d--) {
+      const entry = empPrev[d];
+      const s = entry ? shiftByCode.get(entry.shiftCode) : undefined;
+      if (s?.isWork) runIn++;
+      else break;
+    }
+    consecutiveWork.set(emp.empId, runIn);
     totalHoursWorked.set(emp.empId, 0);
     usedHolidayBankThisMonth.set(emp.empId, 0);
   });
@@ -71,6 +136,8 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
   };
 
   const ramadanCap = config.ramadanDailyHrsCap ?? 6;
+  const art86NightStart = config.art86NightStart || ART86_DEFAULT_NIGHT_START;
+  const art86NightEnd = config.art86NightEnd || ART86_DEFAULT_NIGHT_END;
 
   const isOnMaternityLeave = (emp: Employee, dateStr: string): boolean => {
     if (!emp.maternityLeaveStart || !emp.maternityLeaveEnd) return false;
@@ -80,6 +147,11 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
   const isOnSickLeave = (emp: Employee, dateStr: string): boolean => {
     if (!emp.sickLeaveStart || !emp.sickLeaveEnd) return false;
     return dateStr >= emp.sickLeaveStart && dateStr <= emp.sickLeaveEnd;
+  };
+
+  const isOnAnnualLeave = (emp: Employee, dateStr: string): boolean => {
+    if (!emp.annualLeaveStart || !emp.annualLeaveEnd) return false;
+    return dateStr >= emp.annualLeaveStart && dateStr <= emp.annualLeaveEnd;
   };
 
   const isRamadan = (dateStr: string): boolean => {
@@ -119,6 +191,7 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
     // even emergency-mode level 3 won't assign to someone on leave.
     if (isOnMaternityLeave(emp, dateStr)) return false;
     if (isOnSickLeave(emp, dateStr)) return false;
+    if (isOnAnnualLeave(emp, dateStr)) return false;
 
     const driver = emp.category === 'Driver';
     if (driver) {
@@ -138,6 +211,12 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
       if (shift.durationHrs > ramadanCap) return false;
     }
 
+    // Art. 86 — women's night work in industrial undertakings. Hard rule at
+    // levels 1 and 2; level 3 (emergency) lets coverage win.
+    if (level < 3 && config.enforceArt86NightWork && emp.gender === 'F' && shift.isIndustrial) {
+      if (shiftOverlapsNightWindow(shift.start, shift.end, art86NightStart, art86NightEnd)) return false;
+    }
+
     if (!peak && level < 3) {
       const currentBank = emp.holidayBank - (usedHolidayBankThisMonth.get(emp.empId) || 0);
       if (currentBank > 0 && dayOfWeek !== emp.fixedRestDay) {
@@ -152,19 +231,17 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
       if (emp.fixedRestDay !== 0 && dayOfWeek === emp.fixedRestDay) return false;
       if ((consecutiveWork.get(emp.empId) || 0) >= consecCap) return false;
 
-      // Rolling 7-day window: walk the assigned days backwards using the cached
-      // shiftByCode lookup instead of `shifts.find()` per day.
-      let rolling = 0;
-      for (let d = Math.max(1, day - 6); d < day; d++) {
-        const entry = newSchedule[emp.empId][d];
-        if (!entry) continue;
-        const s = shiftByCode.get(entry.shiftCode);
-        if (s) rolling += s.durationHrs;
-      }
+      // Rolling 7-day window — pulls in the trailing days of the prior month
+      // so the cap doesn't reset on day 1.
+      const rolling = carriedHoursForDay(emp.empId, day, shift.durationHrs);
       const cap = driver
         ? driverCfg.weeklyHrsCap
         : (emp.isHazardous ? config.hazardousWeeklyHrsCap : config.standardWeeklyHrsCap);
-      if (rolling + shift.durationHrs > cap) return false;
+      if (rolling > cap) return false;
+
+      // Soft preference: at level 1 only, reject explicitly-avoided shifts.
+      // The candidate-sort handles the positive bias.
+      if (emp.avoidShiftCodes?.includes(shift.code)) return false;
     }
 
     if (level === 2) {
@@ -218,10 +295,18 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
         }
         if (validShifts.length === 0) continue;
 
+        // Candidate sort: balance hours-worked first; bias towards employees
+        // whose preferences include one of the valid shifts so they land on
+        // their preferred shifts when other constraints permit.
+        const validShiftCodes = new Set(validShifts.map(s => s.code));
         const sortedPool = [...employees].sort((a, b) => {
           const hA = totalHoursWorked.get(a.empId) || 0;
           const hB = totalHoursWorked.get(b.empId) || 0;
           if (Math.abs(hA - hB) > 4) return hA - hB;
+          // Soft preference bias.
+          const prefA = (a.preferredShiftCodes || []).some(c => validShiftCodes.has(c)) ? 1 : 0;
+          const prefB = (b.preferredShiftCodes || []).some(c => validShiftCodes.has(c)) ? 1 : 0;
+          if (prefA !== prefB) return prefB - prefA;
           const cA = consecutiveWork.get(a.empId) || 0;
           const cB = consecutiveWork.get(b.empId) || 0;
           return cA - cB;
@@ -230,10 +315,20 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
         while (currentHC < requiredHC) {
           let assigned = false;
           for (const level of [1, 2, 3] as (1 | 2 | 3)[]) {
+            // Order valid shifts by the candidate's preference at level 1,
+            // then by length. At levels 2/3 we ignore preference so coverage
+            // is never sacrificed.
             for (const targetShift of validShifts) {
-              const candidate = sortedPool.find(e =>
-                evaluate(e, day, targetShift, st.id, level, peak, st, dayOfWeek, dateStr),
-              );
+              const candidate = sortedPool.find(e => {
+                if (level === 1 && e.preferredShiftCodes?.length) {
+                  // At level 1, if the employee has any preference list and
+                  // none of the valid shifts is preferred, push them down.
+                  const hasPreferredHere = (e.preferredShiftCodes || []).some(c => validShiftCodes.has(c));
+                  const isThisPreferred = (e.preferredShiftCodes || []).includes(targetShift.code);
+                  if (hasPreferredHere && !isThisPreferred) return false;
+                }
+                return evaluate(e, day, targetShift, st.id, level, peak, st, dayOfWeek, dateStr);
+              });
               if (candidate) {
                 newSchedule[candidate.empId][day] = { shiftCode: targetShift.code, stationId: st.id };
                 totalHoursWorked.set(candidate.empId, (totalHoursWorked.get(candidate.empId) || 0) + targetShift.durationHrs);
@@ -265,15 +360,16 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
       }
     }
 
-    // After-day pass: fill OFF (or MAT/SL for protected-leave dates) and
+    // After-day pass: fill OFF (or MAT/SL/AL for protected-leave dates) and
     // decay the holiday bank where applicable. empIndexById replaces the
     // previous O(n) `findIndex` per employee.
     for (const e of employees) {
       if (newSchedule[e.empId][day]) continue;
       const onMaternity = isOnMaternityLeave(e, dateStr);
       const onSick = !onMaternity && isOnSickLeave(e, dateStr);
-      const onLeave = onMaternity || onSick;
-      const code = onMaternity ? 'MAT' : onSick ? 'SL' : 'OFF';
+      const onAnnual = !onMaternity && !onSick && isOnAnnualLeave(e, dateStr);
+      const onLeave = onMaternity || onSick || onAnnual;
+      const code = onMaternity ? 'MAT' : onSick ? 'SL' : onAnnual ? 'AL' : 'OFF';
       newSchedule[e.empId][day] = { shiftCode: code };
       consecutiveWork.set(e.empId, 0);
 

@@ -6,14 +6,19 @@ import { fileURLToPath } from "url";
 
 // In production, esbuild provides __dirname for CJS
 // In dev (tsx), we handle both
-const _dirname = typeof __dirname !== 'undefined' 
-  ? __dirname 
+const _dirname = typeof __dirname !== 'undefined'
+  ? __dirname
   : path.dirname(fileURLToPath(import.meta.url));
+
+// Default company id used when migrating legacy single-company data files.
+// Stays stable across versions so backups generated pre-multi-company keep
+// working after a roundtrip. Mirrored on the client (initialData.ts).
+const DEFAULT_COMPANY_ID = 'co-default';
 
 async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000');
-  
+
   // DATA_DIR is set by Electron main process (AppData in production)
   const DATA_DIR = process.env.DATA_DIR
     ? path.resolve(process.env.DATA_DIR)
@@ -26,7 +31,11 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
-  const ALLOWED_KEYS = new Set(["employees", "shifts", "holidays", "config", "stations", "allSchedules"]);
+  // Per-company domains. Each is stored on disk as Record<companyId, T>; the
+  // server migrates legacy bare arrays / objects to the namespaced shape on
+  // first read. `companies.json` carries the list of companies + active id.
+  const COMPANY_DOMAINS = new Set(["employees", "shifts", "holidays", "config", "stations", "allSchedules"]);
+  const ALLOWED_KEYS = new Set([...COMPANY_DOMAINS, "companies"]);
   const RESET_CONFIRM_TOKEN = "DELETE_ALL_DATA";
   const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
   const AUDIT_MAX_ENTRIES = 2000;
@@ -46,6 +55,7 @@ async function startServer() {
     targetId?: string;   // empId / shift code / station id / holiday date
     label?: string;      // human-friendly target name
     summary: string;     // short rendered description
+    companyId?: string;  // namespace the entry — undefined for global ops
   };
 
   const readAudit = (): AuditEntry[] => {
@@ -72,97 +82,158 @@ async function startServer() {
     try { return JSON.parse(fs.readFileSync(fp, "utf-8")); } catch { return null; }
   };
 
-  // Compute audit entries by diffing the prior on-disk value against the incoming one.
-  // Each domain has its own identity rule — the function knows enough to label changes
-  // without trying to be a generic deep-diff library (would create noise).
-  const diffDomain = (key: string, prev: any, next: any): AuditEntry[] => {
-    const ts = Date.now();
-    if (prev == null && next == null) return [];
-
-    if (key === "employees" || key === "shifts" || key === "stations") {
-      const idKey = key === "employees" ? "empId" : key === "shifts" ? "code" : "id";
-      const labelKey = key === "shifts" ? "name" : "name";
-      const prevArr: any[] = Array.isArray(prev) ? prev : [];
-      const nextArr: any[] = Array.isArray(next) ? next : [];
-      const prevById = new Map(prevArr.map(x => [x[idKey], x]));
-      const nextById = new Map(nextArr.map(x => [x[idKey], x]));
-      const entries: AuditEntry[] = [];
-      for (const [id, item] of nextById) {
-        if (!prevById.has(id)) {
-          entries.push({ ts, domain: key, op: "add", targetId: id, label: item[labelKey], summary: `Added ${key.slice(0, -1)}: ${item[labelKey] ?? id}` });
-        } else if (JSON.stringify(prevById.get(id)) !== JSON.stringify(item)) {
-          entries.push({ ts, domain: key, op: "modify", targetId: id, label: item[labelKey], summary: `Modified ${key.slice(0, -1)}: ${item[labelKey] ?? id}` });
-        }
-      }
-      for (const [id, item] of prevById) {
-        if (!nextById.has(id)) {
-          entries.push({ ts, domain: key, op: "remove", targetId: id, label: item[labelKey], summary: `Removed ${key.slice(0, -1)}: ${item[labelKey] ?? id}` });
-        }
-      }
-      return entries;
+  // Detect a legacy (pre-multi-company) bare array/object and lift it under
+  // DEFAULT_COMPANY_ID so the rest of the codebase only deals with the
+  // namespaced shape. Returns the (possibly migrated) value plus a flag the
+  // caller can use to know whether to write back the migration.
+  const migrateLegacyDomain = (key: string, raw: any): { value: Record<string, any>; migrated: boolean } => {
+    if (raw == null) return { value: {}, migrated: false };
+    // Domains are objects-keyed-by-companyId. Heuristic: if it's an array,
+    // it's the legacy bare shape. The `config` and `allSchedules` domains are
+    // objects either way — we detect by spotting a known field at the top
+    // level. `config` always has `year`/`month`; `allSchedules` keys look like
+    // `scheduler_schedule_YYYY_MM`.
+    if (Array.isArray(raw)) {
+      return { value: { [DEFAULT_COMPANY_ID]: raw }, migrated: true };
     }
-
-    if (key === "holidays") {
-      const prevArr: any[] = Array.isArray(prev) ? prev : [];
-      const nextArr: any[] = Array.isArray(next) ? next : [];
-      const prevByDate = new Map(prevArr.map(x => [x.date, x]));
-      const nextByDate = new Map(nextArr.map(x => [x.date, x]));
-      const entries: AuditEntry[] = [];
-      for (const [d, item] of nextByDate) {
-        if (!prevByDate.has(d)) entries.push({ ts, domain: "holidays", op: "add", targetId: d, label: item.name, summary: `Added holiday ${item.name} (${d})` });
-        else if (JSON.stringify(prevByDate.get(d)) !== JSON.stringify(item)) entries.push({ ts, domain: "holidays", op: "modify", targetId: d, label: item.name, summary: `Modified holiday ${item.name} (${d})` });
-      }
-      for (const [d, item] of prevByDate) {
-        if (!nextByDate.has(d)) entries.push({ ts, domain: "holidays", op: "remove", targetId: d, label: item.name, summary: `Removed holiday ${item.name} (${d})` });
-      }
-      return entries;
-    }
-
     if (key === "config") {
-      const a = prev || {}, b = next || {};
-      const changed: string[] = [];
-      const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-      for (const k of keys) {
-        if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) changed.push(k);
+      // Bare legacy config has top-level `year` / `month` numbers.
+      if (typeof raw.year === "number" && typeof raw.month === "number") {
+        return { value: { [DEFAULT_COMPANY_ID]: raw }, migrated: true };
       }
-      if (changed.length === 0) return [];
-      return [{ ts, domain: "config", op: "modify", summary: `Config edited: ${changed.slice(0, 8).join(", ")}${changed.length > 8 ? `, +${changed.length - 8} more` : ""}` }];
+      return { value: raw, migrated: false };
     }
-
     if (key === "allSchedules") {
-      // Per-month replacements — emit one entry per month whose key changed.
-      const a = prev || {}, b = next || {};
-      const months = new Set([...Object.keys(a), ...Object.keys(b)]);
-      const entries: AuditEntry[] = [];
-      for (const m of months) {
-        if (JSON.stringify(a[m]) !== JSON.stringify(b[m])) {
-          entries.push({ ts, domain: "schedule", op: "replace", targetId: m, summary: `Schedule edited for ${m.replace("scheduler_schedule_", "").replace("_", "-")}` });
-        }
+      // Bare legacy allSchedules: keys are `scheduler_schedule_YYYY_MM`.
+      // Namespaced shape: keys are companyIds whose values are themselves
+      // objects with `scheduler_schedule_YYYY_MM` keys.
+      const keys = Object.keys(raw);
+      const looksLegacy = keys.length > 0 && keys.every(k => /^scheduler_schedule_/.test(k));
+      if (looksLegacy) {
+        return { value: { [DEFAULT_COMPANY_ID]: raw }, migrated: true };
       }
-      return entries;
+      return { value: raw, migrated: false };
     }
-
-    return [];
+    return { value: raw, migrated: false };
   };
 
-  // API: Get App Data
-  app.get("/api/data", (req, res) => {
+  // Compute audit entries by diffing the prior on-disk value against the incoming one.
+  // Each domain has its own identity rule — the function knows enough to label changes
+  // without trying to be a generic deep-diff library (would create noise). Operates on
+  // the namespaced shape (Record<companyId, T>); emits one entry per company × change.
+  const diffDomain = (key: string, prevAll: any, nextAll: any): AuditEntry[] => {
+    const ts = Date.now();
+    if (prevAll == null && nextAll == null) return [];
+
+    if (key === "companies") {
+      const a = prevAll || { companies: [], activeCompanyId: '' };
+      const b = nextAll || { companies: [], activeCompanyId: '' };
+      const aArr: any[] = Array.isArray(a.companies) ? a.companies : [];
+      const bArr: any[] = Array.isArray(b.companies) ? b.companies : [];
+      const aById = new Map(aArr.map(x => [x.id, x]));
+      const bById = new Map(bArr.map(x => [x.id, x]));
+      const entries: AuditEntry[] = [];
+      for (const [id, item] of bById) {
+        if (!aById.has(id)) entries.push({ ts, domain: "companies", op: "add", targetId: id, label: item.name, summary: `Added company: ${item.name}` });
+        else if (JSON.stringify(aById.get(id)) !== JSON.stringify(item)) {
+          entries.push({ ts, domain: "companies", op: "modify", targetId: id, label: item.name, summary: `Renamed company → ${item.name}` });
+        }
+      }
+      for (const [id, item] of aById) {
+        if (!bById.has(id)) entries.push({ ts, domain: "companies", op: "remove", targetId: id, label: item.name, summary: `Removed company: ${item.name}` });
+      }
+      if (a.activeCompanyId !== b.activeCompanyId) {
+        entries.push({ ts, domain: "companies", op: "modify", summary: `Active company switched`, targetId: b.activeCompanyId });
+      }
+      return entries;
+    }
+
+    const prevByCo: Record<string, any> = (prevAll && typeof prevAll === 'object') ? prevAll : {};
+    const nextByCo: Record<string, any> = (nextAll && typeof nextAll === 'object') ? nextAll : {};
+    const allCompanyIds = new Set([...Object.keys(prevByCo), ...Object.keys(nextByCo)]);
+    const entries: AuditEntry[] = [];
+
+    for (const companyId of allCompanyIds) {
+      const prev = prevByCo[companyId];
+      const next = nextByCo[companyId];
+      if (key === "employees" || key === "shifts" || key === "stations") {
+        const idKey = key === "employees" ? "empId" : key === "shifts" ? "code" : "id";
+        const labelKey = "name";
+        const prevArr: any[] = Array.isArray(prev) ? prev : [];
+        const nextArr: any[] = Array.isArray(next) ? next : [];
+        const prevById = new Map(prevArr.map(x => [x[idKey], x]));
+        const nextById = new Map(nextArr.map(x => [x[idKey], x]));
+        for (const [id, item] of nextById) {
+          if (!prevById.has(id)) entries.push({ ts, domain: key, op: "add", targetId: id, label: item[labelKey], summary: `Added ${key.slice(0, -1)}: ${item[labelKey] ?? id}`, companyId });
+          else if (JSON.stringify(prevById.get(id)) !== JSON.stringify(item)) entries.push({ ts, domain: key, op: "modify", targetId: id, label: item[labelKey], summary: `Modified ${key.slice(0, -1)}: ${item[labelKey] ?? id}`, companyId });
+        }
+        for (const [id, item] of prevById) {
+          if (!nextById.has(id)) entries.push({ ts, domain: key, op: "remove", targetId: id, label: item[labelKey], summary: `Removed ${key.slice(0, -1)}: ${item[labelKey] ?? id}`, companyId });
+        }
+      } else if (key === "holidays") {
+        const prevArr: any[] = Array.isArray(prev) ? prev : [];
+        const nextArr: any[] = Array.isArray(next) ? next : [];
+        const prevByDate = new Map(prevArr.map(x => [x.date, x]));
+        const nextByDate = new Map(nextArr.map(x => [x.date, x]));
+        for (const [d, item] of nextByDate) {
+          if (!prevByDate.has(d)) entries.push({ ts, domain: "holidays", op: "add", targetId: d, label: item.name, summary: `Added holiday ${item.name} (${d})`, companyId });
+          else if (JSON.stringify(prevByDate.get(d)) !== JSON.stringify(item)) entries.push({ ts, domain: "holidays", op: "modify", targetId: d, label: item.name, summary: `Modified holiday ${item.name} (${d})`, companyId });
+        }
+        for (const [d, item] of prevByDate) {
+          if (!nextByDate.has(d)) entries.push({ ts, domain: "holidays", op: "remove", targetId: d, label: item.name, summary: `Removed holiday ${item.name} (${d})`, companyId });
+        }
+      } else if (key === "config") {
+        const a = prev || {}, b = next || {};
+        const changed: string[] = [];
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const k of keys) {
+          if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) changed.push(k);
+        }
+        if (changed.length > 0) {
+          entries.push({ ts, domain: "config", op: "modify", summary: `Config edited: ${changed.slice(0, 8).join(", ")}${changed.length > 8 ? `, +${changed.length - 8} more` : ""}`, companyId });
+        }
+      } else if (key === "allSchedules") {
+        const a = prev || {}, b = next || {};
+        const months = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const m of months) {
+          if (JSON.stringify(a[m]) !== JSON.stringify(b[m])) {
+            entries.push({ ts, domain: "schedule", op: "replace", targetId: m, summary: `Schedule edited for ${m.replace("scheduler_schedule_", "").replace("_", "-")}`, companyId });
+          }
+        }
+      }
+    }
+
+    return entries;
+  };
+
+  // API: Get App Data — also performs lazy migration of legacy bare-shape
+  // files so the next save writes them out in the namespaced shape.
+  app.get("/api/data", (_req, res) => {
     const data: Record<string, any> = {};
-    ALLOWED_KEYS.forEach(file => {
+    let migratedAny = false;
+    for (const file of ALLOWED_KEYS) {
       const filePath = path.join(DATA_DIR, `${file}.json`);
       if (fs.existsSync(filePath)) {
         try {
-          data[file] = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+          const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+          if (file === "companies") {
+            data[file] = raw;
+          } else {
+            const { value, migrated } = migrateLegacyDomain(file, raw);
+            data[file] = value;
+            if (migrated) migratedAny = true;
+          }
         } catch (e) {
-          // Corrupt file: surface in server log so users can recover from a backup
           console.error(`[Scheduler] Corrupt data file ${file}.json:`, e);
-          data[file] = null;
+          data[file] = file === "companies" ? null : {};
         }
       } else {
-        data[file] = null;
+        data[file] = file === "companies" ? null : {};
       }
-    });
-
+    }
+    if (migratedAny) {
+      console.log("[Scheduler] Migrated legacy data files into namespaced (multi-company) shape.");
+    }
     res.json(data);
   });
 
@@ -173,14 +244,15 @@ async function startServer() {
     const body = req.body || {};
     try {
       const auditEntries: AuditEntry[] = [];
-      Object.keys(body).forEach(key => {
-        if (!ALLOWED_KEYS.has(key)) return;
-        const prev = readDomain(key);
+      for (const key of Object.keys(body)) {
+        if (!ALLOWED_KEYS.has(key)) continue;
+        const prevRaw = readDomain(key);
+        const prev = key === "companies" ? prevRaw : migrateLegacyDomain(key, prevRaw).value;
         const next = body[key];
         auditEntries.push(...diffDomain(key, prev, next));
         const filePath = path.join(DATA_DIR, `${key}.json`);
         atomicWrite(filePath, JSON.stringify(next, null, 2));
-      });
+      }
       appendAudit(auditEntries);
       res.json({ success: true, auditAdded: auditEntries.length });
     } catch (e) {
@@ -190,8 +262,39 @@ async function startServer() {
   });
 
   // API: Audit Log — returns the most recent entries (already capped server-side)
-  app.get("/api/audit", (req, res) => {
+  app.get("/api/audit", (_req, res) => {
     res.json({ entries: readAudit() });
+  });
+
+  // API: Update status. The Electron main process writes ILS_JUST_UPDATED_*
+  // env vars when it detects a successful post-update snapshot. The renderer
+  // pings this endpoint at startup so it can show a one-time "updated to vX"
+  // toast and surface where the snapshot landed.
+  app.get("/api/update-status", (_req, res) => {
+    const justUpdatedFrom = process.env.ILS_JUST_UPDATED_FROM || null;
+    const justUpdatedTo = process.env.ILS_JUST_UPDATED_TO || null;
+    let mostRecentSnapshot: string | null = null;
+    try {
+      const parent = path.dirname(DATA_DIR);
+      if (fs.existsSync(parent)) {
+        const candidates = fs.readdirSync(parent, { withFileTypes: true })
+          .filter(d => d.isDirectory() && d.name.startsWith("data-backup-"))
+          .map(d => ({ name: d.name, mtime: fs.statSync(path.join(parent, d.name)).mtimeMs }))
+          .sort((a, b) => b.mtime - a.mtime);
+        if (candidates.length > 0) mostRecentSnapshot = path.join(parent, candidates[0].name);
+      }
+    } catch {
+      // Best-effort only.
+    }
+    res.json({ justUpdatedFrom, justUpdatedTo, mostRecentSnapshot });
+  });
+
+  // API: Acknowledge the update toast. Clears the env vars so subsequent
+  // launches don't re-show the post-update notice.
+  app.post("/api/update-status/ack", (_req, res) => {
+    delete process.env.ILS_JUST_UPDATED_FROM;
+    delete process.env.ILS_JUST_UPDATED_TO;
+    res.json({ success: true });
   });
 
   // API: Clear Audit Log (requires same destructive token as factory reset)
@@ -229,7 +332,7 @@ async function startServer() {
   });
 
   // API: Shutdown
-  app.post("/api/shutdown", (req, res) => {
+  app.post("/api/shutdown", (_req, res) => {
     console.log("Shutting down server...");
     res.json({ success: true });
     setTimeout(() => {

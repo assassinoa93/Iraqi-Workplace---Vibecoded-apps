@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Plus } from 'lucide-react';
 import { format } from 'date-fns';
-import { Employee, Station, Config } from '../types';
+import { Employee, Station, Config, Shift } from '../types';
 import { cn } from '../lib/utils';
 import { SettingField } from './Primitives';
 import { useI18n } from '../lib/i18n';
@@ -15,6 +15,7 @@ interface EmployeeModalProps {
   onSave: (emp: Employee) => void;
   employee: Employee | null;
   stations: Station[];
+  shifts: Shift[];
   config: Pick<Config, 'standardWeeklyHrsCap'>;
 }
 
@@ -41,12 +42,14 @@ const empty = (config: Pick<Config, 'standardWeeklyHrsCap'>): Employee => {
     baseHourlyRate: 0,
     overtimeHours: 0,
     category: 'Standard',
+    preferredShiftCodes: [],
+    avoidShiftCodes: [],
   };
   seed.baseHourlyRate = Math.round(baseHourlyRate(seed, config));
   return seed;
 };
 
-export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, config }: EmployeeModalProps) {
+export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shifts, config }: EmployeeModalProps) {
   const { t } = useI18n();
   const closeButtonRef = useModalKeys(isOpen, onClose) as React.RefObject<HTMLButtonElement>;
   const [formData, setFormData] = useState<Employee>(() => empty(config));
@@ -68,6 +71,28 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, con
         : [...prev.eligibleStations, id]
     }));
   };
+
+  const togglePreferred = (code: string) => {
+    setFormData(prev => {
+      const current = prev.preferredShiftCodes || [];
+      const next = current.includes(code) ? current.filter(c => c !== code) : [...current, code];
+      // Mutually exclusive with avoid — a preferred shift can't also be avoided.
+      const avoid = (prev.avoidShiftCodes || []).filter(c => c !== code);
+      return { ...prev, preferredShiftCodes: next, avoidShiftCodes: avoid };
+    });
+  };
+
+  const toggleAvoid = (code: string) => {
+    setFormData(prev => {
+      const current = prev.avoidShiftCodes || [];
+      const next = current.includes(code) ? current.filter(c => c !== code) : [...current, code];
+      const preferred = (prev.preferredShiftCodes || []).filter(c => c !== code);
+      return { ...prev, avoidShiftCodes: next, preferredShiftCodes: preferred };
+    });
+  };
+
+  const isFemale = formData.gender === 'F';
+  const workShifts = shifts.filter(s => s.isWork);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={employee ? t('modal.employee.title.edit') : t('modal.employee.title.new')}>
@@ -158,6 +183,21 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, con
                   : 'Standard staff follow Art. 67-74: 8h daily / 48h weekly cap, 11h min rest between shifts.'}
               </p>
             </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('modal.employee.field.gender')}</label>
+              <select
+                value={formData.gender || ''}
+                onChange={e => setFormData({...formData, gender: (e.target.value || undefined) as 'M' | 'F' | undefined})}
+                className="w-full px-4 py-2 bg-white border border-slate-200 rounded text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
+              >
+                <option value="">{t('modal.employee.gender.unset')}</option>
+                <option value="M">{t('modal.employee.gender.male')}</option>
+                <option value="F">{t('modal.employee.gender.female')}</option>
+              </select>
+              <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
+                {t('modal.employee.gender.note')}
+              </p>
+            </div>
           </div>
 
           <div className="space-y-3 p-4 bg-blue-50/30 rounded-lg border border-blue-100">
@@ -181,6 +221,59 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, con
               {stations.length === 0 && <p className="text-[10px] text-slate-400 font-medium col-span-3">No stations defined in Layout tab yet.</p>}
             </div>
           </div>
+
+          <div className="space-y-3 p-4 bg-indigo-50/30 rounded-lg border border-indigo-100">
+            <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">{t('modal.employee.preferences.title')}</p>
+            <p className="text-[10px] text-slate-500 leading-relaxed">{t('modal.employee.preferences.note')}</p>
+            <div className="space-y-2">
+              <p className="text-[9px] font-bold text-emerald-700 uppercase tracking-widest">{t('modal.employee.preferences.preferred')}</p>
+              <div className="flex flex-wrap gap-2">
+                {workShifts.map(s => {
+                  const active = (formData.preferredShiftCodes || []).includes(s.code);
+                  return (
+                    <button
+                      key={s.code}
+                      onClick={() => togglePreferred(s.code)}
+                      type="button"
+                      className={cn(
+                        "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-all",
+                        active
+                          ? "bg-emerald-600 border-emerald-700 text-white shadow-sm"
+                          : "bg-white border-slate-200 text-slate-500 hover:border-emerald-300"
+                      )}
+                    >
+                      {s.code} · {s.start}–{s.end}
+                    </button>
+                  );
+                })}
+                {workShifts.length === 0 && <p className="text-[10px] text-slate-400">No work shifts defined yet.</p>}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-[9px] font-bold text-rose-700 uppercase tracking-widest">{t('modal.employee.preferences.avoid')}</p>
+              <div className="flex flex-wrap gap-2">
+                {workShifts.map(s => {
+                  const active = (formData.avoidShiftCodes || []).includes(s.code);
+                  return (
+                    <button
+                      key={s.code}
+                      onClick={() => toggleAvoid(s.code)}
+                      type="button"
+                      className={cn(
+                        "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-all",
+                        active
+                          ? "bg-rose-600 border-rose-700 text-white shadow-sm"
+                          : "bg-white border-slate-200 text-slate-500 hover:border-rose-300"
+                      )}
+                    >
+                      {s.code} · {s.start}–{s.end}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
              <div className="flex items-center gap-2">
                 <input type="checkbox" checked={formData.isHazardous} onChange={e => setFormData({...formData, isHazardous: e.target.checked})} />
@@ -195,22 +288,27 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, con
                 <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.employee.flag.exempt')}</span>
              </div>
           </div>
-          <div className="space-y-3 p-4 bg-rose-50/30 rounded-lg border border-rose-100">
-            <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">{t('modal.employee.maternity.title')}</p>
-            <p className="text-[10px] text-slate-500 leading-relaxed">{t('modal.employee.maternity.note')}</p>
-            <div className="grid grid-cols-2 gap-4">
-              <SettingField
-                label={t('modal.employee.maternity.start')}
-                value={formData.maternityLeaveStart || ''}
-                onChange={v => setFormData(prev => ({ ...prev, maternityLeaveStart: v || undefined }))}
-              />
-              <SettingField
-                label={t('modal.employee.maternity.end')}
-                value={formData.maternityLeaveEnd || ''}
-                onChange={v => setFormData(prev => ({ ...prev, maternityLeaveEnd: v || undefined }))}
-              />
+
+          {/* Maternity panel — only relevant for female employees. Hidden when
+              gender is unset or 'M' to keep the modal compact. */}
+          {isFemale && (
+            <div className="space-y-3 p-4 bg-rose-50/30 rounded-lg border border-rose-100">
+              <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">{t('modal.employee.maternity.title')}</p>
+              <p className="text-[10px] text-slate-500 leading-relaxed">{t('modal.employee.maternity.note')}</p>
+              <div className="grid grid-cols-2 gap-4">
+                <SettingField
+                  label={t('modal.employee.maternity.start')}
+                  value={formData.maternityLeaveStart || ''}
+                  onChange={v => setFormData(prev => ({ ...prev, maternityLeaveStart: v || undefined }))}
+                />
+                <SettingField
+                  label={t('modal.employee.maternity.end')}
+                  value={formData.maternityLeaveEnd || ''}
+                  onChange={v => setFormData(prev => ({ ...prev, maternityLeaveEnd: v || undefined }))}
+                />
+              </div>
             </div>
-          </div>
+          )}
           <div className="space-y-3 p-4 bg-yellow-50/30 rounded-lg border border-yellow-100">
             <p className="text-[10px] font-bold text-yellow-700 uppercase tracking-widest">{t('modal.employee.sick.title')}</p>
             <p className="text-[10px] text-slate-500 leading-relaxed">{t('modal.employee.sick.note')}</p>
@@ -224,6 +322,22 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, con
                 label={t('modal.employee.sick.end')}
                 value={formData.sickLeaveEnd || ''}
                 onChange={v => setFormData(prev => ({ ...prev, sickLeaveEnd: v || undefined }))}
+              />
+            </div>
+          </div>
+          <div className="space-y-3 p-4 bg-emerald-50/30 rounded-lg border border-emerald-100">
+            <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest">{t('modal.employee.annual.title')}</p>
+            <p className="text-[10px] text-slate-500 leading-relaxed">{t('modal.employee.annual.note')}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <SettingField
+                label={t('modal.employee.annual.start')}
+                value={formData.annualLeaveStart || ''}
+                onChange={v => setFormData(prev => ({ ...prev, annualLeaveStart: v || undefined }))}
+              />
+              <SettingField
+                label={t('modal.employee.annual.end')}
+                value={formData.annualLeaveEnd || ''}
+                onChange={v => setFormData(prev => ({ ...prev, annualLeaveEnd: v || undefined }))}
               />
             </div>
           </div>

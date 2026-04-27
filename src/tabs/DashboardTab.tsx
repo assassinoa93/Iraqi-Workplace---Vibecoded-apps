@@ -310,11 +310,16 @@ export function DashboardTab(props: DashboardTabProps) {
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard label={t('dashboard.kpi.workforce')} value={employees.length} />
         <KpiCard label={t('dashboard.kpi.violations')} value={totalViolationInstances} trend={violations.length > 0 ? 'Critical' : 'Perfect'} />
         <KpiCard label={t('dashboard.kpi.stations')} value={stations.length} />
         <KpiCard label={t('dashboard.kpi.compliance')} value={compliancePct} trend="Health" />
+        <KpiCard
+          label={t('dashboard.kpi.fteForecast')}
+          value={potentialHires === 0 ? '—' : `+${potentialHires}`}
+          trend={potentialHires > 0 ? 'Critical' : undefined}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-6">

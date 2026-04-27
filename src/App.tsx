@@ -18,6 +18,7 @@ import {
   X,
   Layout,
   Scale,
+  FlaskConical,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -28,13 +29,18 @@ import {
   Violation,
   Schedule,
   Station,
+  Company,
+  CompanyData,
 } from './types';
 import { ComplianceEngine, previewAssignmentWarnings } from './lib/compliance';
 import { format, getDaysInMonth, addMonths, subMonths } from 'date-fns';
-import { INITIAL_SHIFTS, INITIAL_EMPLOYEES, INITIAL_STATIONS, INITIAL_HOLIDAYS, DEFAULT_CONFIG } from './lib/initialData';
+import {
+  INITIAL_SHIFTS, INITIAL_EMPLOYEES, INITIAL_STATIONS, INITIAL_HOLIDAYS,
+  DEFAULT_CONFIG, INITIAL_COMPANIES, DEFAULT_COMPANY_ID,
+} from './lib/initialData';
 import { APP_VERSION } from './lib/appMeta';
-import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate } from './lib/payroll';
-import { parseHour } from './lib/time';
+import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap } from './lib/payroll';
+import { parseHour, getOperatingHoursForDow } from './lib/time';
 import { cn } from './lib/utils';
 import { runAutoScheduler } from './lib/autoScheduler';
 import { TabButton } from './components/Primitives';
@@ -45,7 +51,16 @@ import { HolidayModal } from './components/HolidayModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { SchedulePreviewModal, buildPreviewStats } from './components/SchedulePreviewModal';
 import { LocaleSwitcher } from './components/LocaleSwitcher';
+import { CompanySwitcher } from './components/CompanySwitcher';
+import { SimulationDeltaPanel, SimDeltaMetric } from './components/SimulationDeltaPanel';
+import { CoverageHintToast } from './components/CoverageHintToast';
+import { detectCoverageGap, findSwapCandidates, CoverageGap, CoverageSuggestion } from './lib/coverageHints';
+import {
+  normalizeEmployees, normalizeShifts, normalizeStations, normalizeHolidays,
+  normalizeConfig, normalizeAllSchedules, normalizeCompanies,
+} from './lib/migration';
 import { useI18n } from './lib/i18n';
+import type { DayOfWeek } from './types';
 
 // Tabs are code-split: each becomes its own chunk that loads only when the user
 // clicks the corresponding sidebar item. Cuts the initial bundle materially —
@@ -62,32 +77,81 @@ const SettingsTab = lazy(() => import('./tabs/SettingsTab').then(m => ({ default
 const VariablesTab = lazy(() => import('./components/VariablesTab').then(m => ({ default: m.VariablesTab })));
 const AuditLogTab = lazy(() => import('./components/AuditLogTab').then(m => ({ default: m.AuditLogTab })));
 
+// Empty placeholder used when a company has no per-domain data yet.
+const emptyCompanyData = (): CompanyData => ({
+  employees: [],
+  shifts: INITIAL_SHIFTS,
+  stations: [],
+  holidays: [],
+  config: { ...DEFAULT_CONFIG },
+  allSchedules: {},
+});
+
+// CSV-escape a single cell: wraps in double quotes and doubles internal quotes
+// so that names containing commas, quotes, or newlines round-trip correctly.
+const csvCell = (s: string | number): string => {
+  const str = String(s ?? '');
+  if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+};
+
+// Schedule entry / month migration is handled by lib/migration.ts so the
+// load and import paths share a single source of truth for backward compat.
 
 export default function App() {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>(INITIAL_SHIFTS);
-  const [holidays, setHolidays] = useState<PublicHoliday[]>(INITIAL_HOLIDAYS);
-  const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
-  const [stations, setStations] = useState<Station[]>([]);
-  
-  const [allSchedules, setAllSchedules] = useState<Record<string, Schedule>>({});
+  // Companies registry. The first load seeds INITIAL_COMPANIES if the server
+  // returned nothing; per-domain data is also keyed by companyId.
+  const [companies, setCompaniesState] = useState<Company[]>([]);
+  const [activeCompanyId, setActiveCompanyId] = useState<string>('');
+  const [companyData, setCompanyData] = useState<Record<string, CompanyData>>({});
+
+  // Simulation mode keeps a frozen baseline of `companyData`, `companies`, and
+  // `activeCompanyId`. While active, edits stay in the in-memory state only —
+  // the auto-save effect skips persistence so the user can model "what if"
+  // without polluting their saved schedule.
+  const [simMode, setSimMode] = useState(false);
+  const [simBaseline, setSimBaseline] = useState<{
+    companies: Company[];
+    activeCompanyId: string;
+    companyData: Record<string, CompanyData>;
+  } | null>(null);
+
+  // The active company's data slice. Falls back to an empty placeholder when
+  // a company exists in the registry but has no rows yet (e.g. just created).
+  const data: CompanyData = companyData[activeCompanyId] ?? emptyCompanyData();
+  const { employees, shifts, holidays, config, stations, allSchedules } = data;
   const scheduleKey = `scheduler_schedule_${config.year}_${config.month}`;
+  const schedule: Schedule = allSchedules[scheduleKey] ?? {};
+
   // Auto-save status, surfaced in the top bar so the user can see at a glance
   // whether the last edit has reached the server.
   type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
-  // The current month's schedule is derived from `allSchedules` — single source
-  // of truth. Holding it as a separate `useState` previously created a race on
-  // month change: the sync-back effect would write the *old* month's schedule
-  // into the *new* month's slot (because `scheduleKey` had just rolled forward),
-  // clobbering whatever the user had saved for the new month.
-  const schedule: Schedule = allSchedules[scheduleKey] ?? {};
+  // Domain setters scoped to the active company. Each accepts either a
+  // value or an updater function and merges the result back into companyData.
+  type Updater<T> = T | ((prev: T) => T);
+  const updateActive = React.useCallback(<K extends keyof CompanyData>(key: K, updater: Updater<CompanyData[K]>) => {
+    setCompanyData(prev => {
+      const current = prev[activeCompanyId] ?? emptyCompanyData();
+      const next = typeof updater === 'function'
+        ? (updater as (p: CompanyData[K]) => CompanyData[K])(current[key])
+        : updater;
+      return { ...prev, [activeCompanyId]: { ...current, [key]: next } };
+    });
+  }, [activeCompanyId]);
+
+  const setEmployees = React.useCallback((u: Updater<Employee[]>) => updateActive('employees', u), [updateActive]);
+  const setShifts = React.useCallback((u: Updater<Shift[]>) => updateActive('shifts', u), [updateActive]);
+  const setStations = React.useCallback((u: Updater<Station[]>) => updateActive('stations', u), [updateActive]);
+  const setHolidays = React.useCallback((u: Updater<PublicHoliday[]>) => updateActive('holidays', u), [updateActive]);
+  const setConfig = React.useCallback((u: Updater<Config>) => updateActive('config', u), [updateActive]);
+  const setAllSchedules = React.useCallback((u: Updater<Record<string, Schedule>>) => updateActive('allSchedules', u), [updateActive]);
 
   type ScheduleUpdater = Schedule | ((prev: Schedule) => Schedule);
   const setSchedule = React.useCallback((updater: ScheduleUpdater) => {
@@ -96,71 +160,144 @@ export default function App() {
       const next = typeof updater === 'function' ? (updater as (p: Schedule) => Schedule)(current) : updater;
       return { ...prev, [scheduleKey]: next };
     });
-  }, [scheduleKey]);
+  }, [scheduleKey, setAllSchedules]);
 
-  // Migrate any legacy string-typed schedule entries to the {shiftCode} object
-  // shape. Older backups stored just the shift code as a string; we normalise
-  // once at load time so downstream code never has to handle both shapes.
-  // The input type intentionally allows the legacy (string) entry shape — the
-  // output is uniformly { shiftCode } so callers can rely on the modern type.
-  type LegacyEntry = string | { shiftCode: string; stationId?: string };
-  type LegacyMonth = Record<string, Record<string, LegacyEntry>>;
-  type LegacySchedules = Record<string, LegacyMonth>;
-
-  const migrateSchedules = (raw: LegacySchedules): Record<string, Schedule> => {
-    const out: Record<string, Schedule> = {};
-    for (const monthKey of Object.keys(raw)) {
-      const month = raw[monthKey] || {};
-      const migrated: Schedule = {};
-      for (const empId of Object.keys(month)) {
-        const days = month[empId] || {};
-        const newDays: Schedule[string] = {};
-        for (const dayStr of Object.keys(days)) {
-          const day = Number(dayStr);
-          const v = days[dayStr];
-          newDays[day] = typeof v === 'string' ? { shiftCode: v } : v;
-        }
-        migrated[empId] = newDays;
-      }
-      out[monthKey] = migrated;
-    }
-    return out;
-  };
-
-  // Initial Data Fetch
+  // Initial data fetch. Hydrates `companies`, sets the active company from
+  // localStorage if present, and unpacks the per-domain Record<companyId, T>
+  // shape into the in-memory CompanyData map.
   useEffect(() => {
     fetch('/api/data')
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : Promise.reject(r))
       .then(data => {
-        if (data.employees) setEmployees(data.employees);
-        else setEmployees(INITIAL_EMPLOYEES);
-
-        if (data.shifts) setShifts(data.shifts);
-        if (data.holidays) setHolidays(data.holidays);
-        if (data.config) setConfig(prev => ({ ...prev, ...data.config }));
-        if (data.stations) setStations(data.stations);
-        else setStations(INITIAL_STATIONS);
-
-        if (data.allSchedules) {
-          setAllSchedules(migrateSchedules(data.allSchedules));
+        // Companies registry — seed INITIAL_COMPANIES if the server has none.
+        let resolvedCompanies: Company[] = INITIAL_COMPANIES;
+        let resolvedActive: string = DEFAULT_COMPANY_ID;
+        if (data.companies && Array.isArray(data.companies.companies) && data.companies.companies.length > 0) {
+          resolvedCompanies = normalizeCompanies(data.companies.companies);
+          resolvedActive = data.companies.activeCompanyId || resolvedCompanies[0].id;
         }
+        const stickyActive = window.localStorage.getItem('iraqi-scheduler-active-company');
+        if (stickyActive && resolvedCompanies.some(c => c.id === stickyActive)) {
+          resolvedActive = stickyActive;
+        }
+
+        // Build per-company data from the namespaced shape. Each domain is a
+        // Record<companyId, T> coming from the server; missing entries fall
+        // back to either the seed (employees/stations) or sensible empties.
+        // Every domain is run through the migration normalisers so older
+        // releases' on-disk shape upgrades cleanly into the current schema.
+        const map: Record<string, CompanyData> = {};
+        for (const c of resolvedCompanies) {
+          const rawEmps = data.employees?.[c.id] ?? (c.id === DEFAULT_COMPANY_ID ? INITIAL_EMPLOYEES : []);
+          const rawShifts = data.shifts?.[c.id] ?? INITIAL_SHIFTS;
+          const rawStations = data.stations?.[c.id] ?? (c.id === DEFAULT_COMPANY_ID ? INITIAL_STATIONS : []);
+          const rawHolidays = data.holidays?.[c.id] ?? (c.id === DEFAULT_COMPANY_ID ? INITIAL_HOLIDAYS : []);
+          const rawConfig = data.config?.[c.id] ?? {};
+          const rawSchedules = data.allSchedules?.[c.id] ?? {};
+          map[c.id] = {
+            employees: normalizeEmployees(rawEmps),
+            shifts: normalizeShifts(rawShifts),
+            stations: normalizeStations(rawStations),
+            holidays: normalizeHolidays(rawHolidays),
+            config: normalizeConfig(rawConfig),
+            allSchedules: normalizeAllSchedules(rawSchedules),
+          };
+        }
+        setCompaniesState(resolvedCompanies);
+        setActiveCompanyId(resolvedActive);
+        setCompanyData(map);
         setDataLoaded(true);
+      })
+      .catch(err => {
+        // Server unreachable on first load — fall back to defaults so the
+        // app stays usable. Subsequent saves will still attempt to reach
+        // the server and surface errors via the save badge.
+        console.error('[Scheduler] Initial /api/data failed; falling back to defaults:', err);
+        setCompaniesState(INITIAL_COMPANIES);
+        setActiveCompanyId(DEFAULT_COMPANY_ID);
+        setCompanyData({
+          [DEFAULT_COMPANY_ID]: {
+            employees: INITIAL_EMPLOYEES,
+            shifts: INITIAL_SHIFTS,
+            stations: INITIAL_STATIONS,
+            holidays: INITIAL_HOLIDAYS,
+            config: { ...DEFAULT_CONFIG },
+            allSchedules: {},
+          },
+        });
+        setDataLoaded(true);
+        setSaveState('error');
       });
   }, []);
 
-  // Persistence Sync to Server
+  // Persist active company id so a reload returns to the same context.
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    window.localStorage.setItem('iraqi-scheduler-active-company', activeCompanyId);
+  }, [activeCompanyId]);
+
+  // Post-update notice. The Electron main process snapshots the data folder
+  // before the new version touches it; we surface a one-time confirmation so
+  // the user knows their data is intact and where the rollback snapshot lives.
   useEffect(() => {
     if (!dataLoaded) return;
-    const body = { employees, shifts, holidays, config, stations, allSchedules };
+    fetch('/api/update-status')
+      .then(r => r.ok ? r.json() : null)
+      .then((status: null | { justUpdatedFrom: string | null; justUpdatedTo: string | null; mostRecentSnapshot: string | null }) => {
+        if (!status || !status.justUpdatedTo) return;
+        showInfo(
+          t('info.updated.title', { version: status.justUpdatedTo }),
+          t('info.updated.body', {
+            from: status.justUpdatedFrom || 'previous',
+            to: status.justUpdatedTo,
+            snapshot: status.mostRecentSnapshot || t('info.updated.snapshotMissing'),
+          }),
+        );
+        fetch('/api/update-status/ack', { method: 'POST' }).catch(() => {});
+      })
+      .catch(() => {/* non-critical */});
+    // Run once after data load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataLoaded]);
+
+  // Persistence sync to server. Sends the namespaced (Record<companyId, T>)
+  // shape that the server now expects. Skipped during simulation mode so the
+  // sandbox doesn't pollute on-disk state.
+  useEffect(() => {
+    if (!dataLoaded) return;
+    if (simMode) return;
+    const employeesByCo: Record<string, Employee[]> = {};
+    const shiftsByCo: Record<string, Shift[]> = {};
+    const holidaysByCo: Record<string, PublicHoliday[]> = {};
+    const stationsByCo: Record<string, Station[]> = {};
+    const configByCo: Record<string, Config> = {};
+    const allSchedulesByCo: Record<string, Record<string, Schedule>> = {};
+    for (const id of Object.keys(companyData)) {
+      const cd = companyData[id];
+      employeesByCo[id] = cd.employees;
+      shiftsByCo[id] = cd.shifts;
+      holidaysByCo[id] = cd.holidays;
+      stationsByCo[id] = cd.stations;
+      configByCo[id] = cd.config;
+      allSchedulesByCo[id] = cd.allSchedules;
+    }
+    const body = {
+      companies: { companies, activeCompanyId },
+      employees: employeesByCo,
+      shifts: shiftsByCo,
+      holidays: holidaysByCo,
+      stations: stationsByCo,
+      config: configByCo,
+      allSchedules: allSchedulesByCo,
+    };
 
     setSaveState('pending');
-    // Debounce saves slightly to avoid server spam
     const timeout = setTimeout(() => {
       setSaveState('saving');
       fetch('/api/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
       })
         .then(() => {
           setSaveState('saved');
@@ -169,12 +306,11 @@ export default function App() {
         .catch(err => {
           console.error('[Scheduler] Auto-save failed:', err);
           setSaveState('error');
-          // Non-blocking: next change will retry automatically
         });
     }, 500);
 
     return () => clearTimeout(timeout);
-  }, [employees, shifts, holidays, config, stations, allSchedules, dataLoaded]);
+  }, [companies, activeCompanyId, companyData, dataLoaded, simMode]);
 
   // Operational State
   const [paintMode, setPaintMode] = useState<{ shiftCode: string; stationId?: string } | null>(null);
@@ -184,74 +320,139 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [scheduleFilter, setScheduleFilter] = useState('');
   const [scheduleRoleFilter, setScheduleRoleFilter] = useState<string>('all');
-  // Transient warnings shown when paint-mode assignment would breach a cap.
-  // Set on click, auto-cleared after a few seconds. Non-blocking so the user
-  // can still proceed if they're deliberately overriding.
   const [paintWarnings, setPaintWarnings] = useState<{ empName: string; warnings: string[] } | null>(null);
   const paintWarningTimerRef = React.useRef<number | null>(null);
+  // Coverage-gap suggestion toast. Populated when a manual paint vacates a
+  // station-bound work shift; the toast lists swap candidates and offers a
+  // one-click rebalance. Non-blocking — the user can always dismiss it.
+  const [coverageHint, setCoverageHint] = useState<{ gap: CoverageGap; suggestions: CoverageSuggestion[] } | null>(null);
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [selectedEmployees, setSelectedEmployees] = useState<Set<string>>(new Set());
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const backupInputRef = React.useRef<HTMLInputElement>(null);
-  
+
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
 
   const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
   const [editingHoliday, setEditingHoliday] = useState<PublicHoliday | null>(null);
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
-  
+
+  // Lightweight info dialog — single OK button, no destructive action. Used
+  // in place of native `alert()` so the message respects RTL layout and the
+  // app's visual language. Title can be empty for plain-text confirmations.
+  const [infoState, setInfoState] = useState<{ isOpen: boolean; title: string; message: string }>({
+    isOpen: false, title: '', message: '',
+  });
+  const showInfo = React.useCallback((title: string, message: string) => {
+    setInfoState({ isOpen: true, title, message });
+  }, []);
+
   const [confirmState, setConfirmState] = useState<{
     isOpen: boolean;
     title: string;
     message: string;
     onConfirm: () => void;
-    extraAction?: {
-      label: string;
-      onClick: () => void;
-      icon?: any;
-    };
+    extraAction?: { label: string; onClick: () => void; icon?: any };
   }>({
     isOpen: false,
     title: '',
     message: '',
-    onConfirm: () => {}
+    onConfirm: () => {},
   });
 
   const violations = useMemo(() => {
-    const rawViolations = ComplianceEngine.check(employees, shifts, holidays, config, schedule);
-    // User request: OT calculations clear the "Weekly hours cap" violation
-    return rawViolations.filter(v => v.rule !== "Weekly hours cap");
-  }, [schedule, employees, shifts, config, holidays]);
+    const rawViolations = ComplianceEngine.check(employees, shifts, holidays, config, schedule, allSchedules);
+    return rawViolations.filter(v => v.rule !== 'Weekly hours cap');
+  }, [schedule, employees, shifts, config, holidays, allSchedules]);
 
-  // Shared peak-day helper used by both the auto-scheduler and the coverage heatmap
+  // Shared peak-day helper used by both the auto-scheduler and the coverage heatmap.
   const isPeakDay = React.useCallback((day: number): boolean => {
     const date = new Date(config.year, config.month - 1, day);
     const dayOfWeek = date.getDay() + 1; // 1=Sun, 7=Sat
     const holidayDates = new Set(holidays.map(h => h.date));
     return config.peakDays.includes(dayOfWeek) || holidayDates.has(format(date, 'yyyy-MM-dd'));
-  }, [config]);
+  }, [config, holidays]);
 
-  const dailyCoverage = useMemo(() => {
-    const coverage: Record<number, number> = {};
-    const shiftMap = new Map<string, Shift>(shifts.map(s => [s.code, s]));
-    
-    for (let day = 1; day <= config.daysInMonth; day++) {
-      let count = 0;
-      employees.forEach(emp => {
-        const entry = schedule[emp.empId]?.[day];
-        const code = typeof entry === 'string' ? entry : entry?.shiftCode;
-        if (code && shiftMap.get(code)?.isWork) count++;
-      });
-      coverage[day] = count;
+  // Schedule staleness — finds entries that reference shift codes / station ids
+  // / employee ids that no longer exist. Surfaces a banner so the user can
+  // re-run auto-scheduler instead of silently working with broken assignments.
+  const scheduleStaleness = useMemo(() => {
+    const validShifts = new Set(shifts.map(s => s.code));
+    const validStations = new Set(stations.map(s => s.id));
+    const validEmps = new Set(employees.map(e => e.empId));
+    const orphanedEmpIds = new Set<string>();
+    const orphanedShiftCodes = new Set<string>();
+    const orphanedStationIds = new Set<string>();
+    for (const empId of Object.keys(schedule)) {
+      if (!validEmps.has(empId)) {
+        orphanedEmpIds.add(empId);
+        continue;
+      }
+      const days = schedule[empId];
+      for (const dayStr of Object.keys(days)) {
+        const entry = days[Number(dayStr)];
+        if (!validShifts.has(entry.shiftCode)) orphanedShiftCodes.add(entry.shiftCode);
+        if (entry.stationId && !validStations.has(entry.stationId)) orphanedStationIds.add(entry.stationId);
+      }
     }
-    return coverage;
-  }, [employees, schedule, shifts, config.daysInMonth]);
+    const issues = orphanedEmpIds.size + orphanedShiftCodes.size + orphanedStationIds.size;
+    return {
+      isStale: issues > 0,
+      orphanedEmpIds: Array.from(orphanedEmpIds),
+      orphanedShiftCodes: Array.from(orphanedShiftCodes),
+      orphanedStationIds: Array.from(orphanedStationIds),
+    };
+  }, [schedule, employees, shifts, stations]);
 
   const handleSaveEmployee = (emp: Employee) => {
     if (editingEmployee) {
       setEmployees(prev => prev.map(e => e.empId === editingEmployee.empId ? emp : e));
+      // After a leave-date change, scan the active month for newly-vacated
+      // station-bound work shifts. Pick the most-impactful one (largest peak
+      // requirement) and surface a single hint so the user isn't spammed.
+      const newlyOnLeave: number[] = [];
+      const expandedRange = (
+        oldStart: string | undefined, oldEnd: string | undefined,
+        newStart: string | undefined, newEnd: string | undefined,
+      ): { start: string; end: string } | null => {
+        if (!newStart || !newEnd) return null;
+        if (oldStart === newStart && oldEnd === newEnd) return null;
+        return { start: newStart, end: newEnd };
+      };
+      const al = expandedRange(editingEmployee.annualLeaveStart, editingEmployee.annualLeaveEnd, emp.annualLeaveStart, emp.annualLeaveEnd);
+      const sl = expandedRange(editingEmployee.sickLeaveStart, editingEmployee.sickLeaveEnd, emp.sickLeaveStart, emp.sickLeaveEnd);
+      const mat = expandedRange(editingEmployee.maternityLeaveStart, editingEmployee.maternityLeaveEnd, emp.maternityLeaveStart, emp.maternityLeaveEnd);
+      const ranges = [al, sl, mat].filter((r): r is { start: string; end: string } => !!r);
+      if (ranges.length > 0) {
+        for (let day = 1; day <= config.daysInMonth; day++) {
+          const ds = format(new Date(config.year, config.month - 1, day), 'yyyy-MM-dd');
+          if (ranges.some(r => ds >= r.start && ds <= r.end)) newlyOnLeave.push(day);
+        }
+        // Choose the single most-impactful affected day (highest required HC)
+        // and surface a hint for it. Subsequent gaps surface naturally as the
+        // user repaints.
+        let best: { day: number; gap: CoverageGap } | null = null;
+        for (const d of newlyOnLeave) {
+          const prevEntry = schedule[emp.empId]?.[d];
+          const gap = detectCoverageGap({
+            employees, shifts, stations, holidays, config, schedule,
+            empId: emp.empId, day: d, prevEntry, newEntry: undefined, isPeakDay,
+          });
+          if (!gap) continue;
+          const need = isPeakDay(d) ? gap.station.peakMinHC : gap.station.normalMinHC;
+          if (!best || need > (isPeakDay(best.day) ? best.gap.station.peakMinHC : best.gap.station.normalMinHC)) {
+            best = { day: d, gap };
+          }
+        }
+        if (best) {
+          const suggestions = findSwapCandidates(best.gap, {
+            employees, shifts, stations, holidays, config, schedule, isPeakDay,
+          });
+          setCoverageHint({ gap: best.gap, suggestions });
+        }
+      }
     } else {
       setEmployees(prev => [...prev, emp]);
     }
@@ -291,12 +492,15 @@ export default function App() {
   };
 
   const moveShift = (index: number, direction: 'up' | 'down') => {
-    const newShifts = [...shifts];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newShifts.length) return;
-    [newShifts[index], newShifts[targetIndex]] = [newShifts[targetIndex], newShifts[index]];
-    setShifts(newShifts);
+    setShifts(prev => {
+      const next = [...prev];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= next.length) return prev;
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
   };
+
   const handleDeleteShift = (code: string) => {
     setConfirmState({
       isOpen: true,
@@ -345,8 +549,6 @@ export default function App() {
         icon: Download
       },
       onConfirm: () => {
-        // Server requires this exact token to perform a destructive wipe.
-        // See server.ts /api/reset.
         fetch('/api/reset', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -355,10 +557,10 @@ export default function App() {
           .then(r => r.ok ? r.json() : Promise.reject(r))
           .then(() => {
             localStorage.clear();
-            alert('All data has been cleared on server and browser. The page will now reload.');
-            window.location.reload();
+            showInfo(t('confirm.factoryReset.title'), t('info.factoryReset.body'));
+            setTimeout(() => window.location.reload(), 1500);
           })
-          .catch(() => alert('Reset failed. Please try again or check the server logs.'));
+          .catch(() => showInfo(t('info.error.title'), t('info.factoryReset.failed')));
       }
     });
   };
@@ -368,17 +570,21 @@ export default function App() {
     if (!file) return;
 
     if (!file.name.endsWith('.json')) {
-      alert("Please select a valid .json backup file.");
+      showInfo(t('info.error.title'), t('info.backup.invalidFile'));
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const data = JSON.parse(event.target?.result as string);
-        
-        // Simple validation
-        if (!data.employees || !data.shifts || !data.config) {
+        const raw = JSON.parse(event.target?.result as string);
+
+        // Two valid backup shapes:
+        //  1. Multi-company shape (post v1.6): top-level companies + per-domain Record<companyId, T>.
+        //  2. Legacy single-company shape (pre v1.6): bare arrays / objects.
+        const isMulti = raw.companies && raw.employees && typeof raw.employees === 'object' && !Array.isArray(raw.employees);
+
+        if (!isMulti && (!raw.employees || !raw.shifts || !raw.config)) {
           throw new Error("Invalid backup format: Missing required fields (employees, shifts, config).");
         }
 
@@ -387,48 +593,49 @@ export default function App() {
           title: t('confirm.importBackup.title'),
           message: t('confirm.importBackup.body'),
           onConfirm: () => {
-            // Restore states
-            setEmployees(data.employees);
-            setShifts(data.shifts);
-            setHolidays(data.holidays || []);
-            setConfig(data.config);
-            setStations(data.stations || INITIAL_STATIONS);
-            
-            // Restore schedules. Modern backups carry the full per-month map;
-            // legacy backups only carry the active month, in which case we
-            // store it under the imported config's month key (not the current
-            // scheduleKey, which still points at the pre-import month).
-            if (data.allSchedules) {
-              setAllSchedules(data.allSchedules);
-            } else if (data.schedule && data.config?.year != null && data.config?.month != null) {
-              const importKey = `scheduler_schedule_${data.config.year}_${data.config.month}`;
-              setAllSchedules(prev => ({ ...prev, [importKey]: data.schedule }));
+            if (isMulti) {
+              const importedCompanies = normalizeCompanies(raw.companies.companies || INITIAL_COMPANIES);
+              const importedActive: string = raw.companies.activeCompanyId || importedCompanies[0]?.id || DEFAULT_COMPANY_ID;
+              const map: Record<string, CompanyData> = {};
+              for (const c of importedCompanies) {
+                map[c.id] = {
+                  employees: normalizeEmployees(raw.employees?.[c.id] ?? []),
+                  shifts: normalizeShifts(raw.shifts?.[c.id] ?? INITIAL_SHIFTS),
+                  stations: normalizeStations(raw.stations?.[c.id] ?? []),
+                  holidays: normalizeHolidays(raw.holidays?.[c.id] ?? []),
+                  config: normalizeConfig(raw.config?.[c.id] ?? {}),
+                  allSchedules: normalizeAllSchedules(raw.allSchedules?.[c.id] ?? {}),
+                };
+              }
+              setCompaniesState(importedCompanies);
+              setActiveCompanyId(importedActive);
+              setCompanyData(map);
+            } else {
+              // Legacy backup — wrap under DEFAULT_COMPANY_ID. Run through
+              // the same migration normalisers so old field shapes upgrade.
+              const cfg = normalizeConfig(raw.config ?? {});
+              const allSched: Record<string, Schedule> = raw.allSchedules
+                ? normalizeAllSchedules(raw.allSchedules)
+                : (raw.schedule ? { [`scheduler_schedule_${cfg.year}_${cfg.month}`]: normalizeAllSchedules({ tmp: raw.schedule }).tmp } : {});
+              const cd: CompanyData = {
+                employees: normalizeEmployees(raw.employees ?? []),
+                shifts: normalizeShifts(raw.shifts ?? INITIAL_SHIFTS),
+                stations: normalizeStations(raw.stations ?? INITIAL_STATIONS),
+                holidays: normalizeHolidays(raw.holidays ?? []),
+                config: cfg,
+                allSchedules: allSched,
+              };
+              setCompaniesState(INITIAL_COMPANIES);
+              setActiveCompanyId(DEFAULT_COMPANY_ID);
+              setCompanyData({ [DEFAULT_COMPANY_ID]: cd });
             }
-
-            // Persistence Sync to Server immediately
-            const body = { 
-              employees: data.employees, 
-              shifts: data.shifts, 
-              holidays: data.holidays || [], 
-              config: data.config, 
-              stations: data.stations || INITIAL_STATIONS, 
-              allSchedules: data.allSchedules || {} 
-            };
-            
-            fetch('/api/save', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body)
-            })
-            .then(() => {
-              alert('Migration successful. Data has been synced to the local server.');
-              window.location.reload();
-            });
+            // Force one save and reload so the audit log captures the migration.
+            setTimeout(() => window.location.reload(), 800);
           }
         });
 
       } catch (err) {
-        alert("Error parsing backup file: " + (err instanceof Error ? err.message : "Unknown error"));
+        showInfo(t('info.error.title'), t('info.backup.parseFailed', { msg: err instanceof Error ? err.message : 'Unknown error' }));
       }
     };
     reader.readAsText(file);
@@ -441,8 +648,27 @@ export default function App() {
       title: t('confirm.shutdown.title'),
       message: t('confirm.shutdown.body'),
       onConfirm: () => {
-        // Force one last sync
-        const body = { employees, shifts, holidays, config, stations, allSchedules };
+        // Force one last sync, then close the local server.
+        const employeesByCo: Record<string, Employee[]> = {};
+        const shiftsByCo: Record<string, Shift[]> = {};
+        const holidaysByCo: Record<string, PublicHoliday[]> = {};
+        const stationsByCo: Record<string, Station[]> = {};
+        const configByCo: Record<string, Config> = {};
+        const allSchedulesByCo: Record<string, Record<string, Schedule>> = {};
+        for (const id of Object.keys(companyData)) {
+          const cd = companyData[id];
+          employeesByCo[id] = cd.employees;
+          shiftsByCo[id] = cd.shifts;
+          holidaysByCo[id] = cd.holidays;
+          stationsByCo[id] = cd.stations;
+          configByCo[id] = cd.config;
+          allSchedulesByCo[id] = cd.allSchedules;
+        }
+        const body = {
+          companies: { companies, activeCompanyId },
+          employees: employeesByCo, shifts: shiftsByCo, holidays: holidaysByCo,
+          stations: stationsByCo, config: configByCo, allSchedules: allSchedulesByCo,
+        };
         fetch('/api/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -450,8 +676,8 @@ export default function App() {
         }).then(() => {
           fetch('/api/shutdown', { method: 'POST' })
             .then(() => {
-              alert('Server is shutting down. You can now close this browser tab.');
-              window.close();
+              showInfo(t('confirm.shutdown.title'), t('info.shutdown.body'));
+              setTimeout(() => window.close(), 1000);
             });
         });
       }
@@ -462,12 +688,32 @@ export default function App() {
     setStations(INITIAL_STATIONS);
     setEmployees(INITIAL_EMPLOYEES);
     setSchedule({});
-    alert('Balanced Seed: 35 Operators (Games with 1 or 2 HC) and 8 Cashiers. Use Auto-Scheduler to populate.');
+    showInfo(t('info.seed.title'), t('info.seed.body'));
   };
 
   const exportBackup = () => {
-    // Include allSchedules so ALL months are preserved — not just the current view
-    const data = { employees, shifts, holidays, config, stations, allSchedules };
+    // Multi-company backup: includes everything we persist on the server.
+    const employeesByCo: Record<string, Employee[]> = {};
+    const shiftsByCo: Record<string, Shift[]> = {};
+    const holidaysByCo: Record<string, PublicHoliday[]> = {};
+    const stationsByCo: Record<string, Station[]> = {};
+    const configByCo: Record<string, Config> = {};
+    const allSchedulesByCo: Record<string, Record<string, Schedule>> = {};
+    for (const id of Object.keys(companyData)) {
+      const cd = companyData[id];
+      employeesByCo[id] = cd.employees;
+      shiftsByCo[id] = cd.shifts;
+      holidaysByCo[id] = cd.holidays;
+      stationsByCo[id] = cd.stations;
+      configByCo[id] = cd.config;
+      allSchedulesByCo[id] = cd.allSchedules;
+    }
+    const data = {
+      companies: { companies, activeCompanyId },
+      employees: employeesByCo, shifts: shiftsByCo, holidays: holidaysByCo,
+      stations: stationsByCo, config: configByCo, allSchedules: allSchedulesByCo,
+      version: APP_VERSION,
+    };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -487,7 +733,6 @@ export default function App() {
       const lines = text.split('\n');
       const newEmployees: Employee[] = [];
 
-      // Skip header assuming format: ID,Name,Role,Department,Type,Hours...
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
@@ -528,7 +773,7 @@ export default function App() {
 
       if (newEmployees.length > 0) {
         setEmployees(prev => [...prev, ...newEmployees]);
-        alert(`Successfully imported ${newEmployees.length} personnel records.`);
+        showInfo(t('info.csvImport.title'), t('info.csvImport.body', { count: newEmployees.length }));
       }
     };
     reader.readAsText(file);
@@ -538,14 +783,14 @@ export default function App() {
   const exportScheduleCSV = () => {
     const headers = ['Employee ID', 'Name', ...Array.from({ length: config.daysInMonth }, (_, i) => `Day ${i + 1}`)];
     const rows = employees.map(emp => {
-      const row = [emp.empId, emp.name];
+      const cells: string[] = [csvCell(emp.empId), csvCell(emp.name)];
       for (let i = 1; i <= config.daysInMonth; i++) {
         const entry = schedule[emp.empId]?.[i];
-        row.push(typeof entry === 'string' ? entry : entry?.shiftCode || '');
+        cells.push(csvCell(typeof entry === 'string' ? entry : entry?.shiftCode || ''));
       }
-      return row.join(',');
+      return cells.join(',');
     });
-    const csvContent = [headers.join(','), ...rows].join('\n');
+    const csvContent = [headers.map(csvCell).join(','), ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -580,7 +825,7 @@ export default function App() {
       ...prev,
       year: next.getFullYear(),
       month: next.getMonth() + 1,
-      daysInMonth: getDaysInMonth(next)
+      daysInMonth: getDaysInMonth(next),
     }));
   };
 
@@ -590,13 +835,11 @@ export default function App() {
       ...last,
       year: prev.getFullYear(),
       month: prev.getMonth() + 1,
-      daysInMonth: getDaysInMonth(prev)
+      daysInMonth: getDaysInMonth(prev),
     }));
   };
 
-  // Preview-then-apply for the auto-scheduler. Holds the candidate result and
-  // its compliance impact in state until the user approves it. Applying also
-  // snapshots the previous (employees, schedule) tuple onto an undo stack.
+  // Preview-then-apply for the auto-scheduler.
   const [pendingScheduleResult, setPendingScheduleResult] = useState<{
     schedule: Schedule;
     employees: Employee[];
@@ -608,12 +851,13 @@ export default function App() {
     try {
       const { schedule: newSchedule, updatedEmployees } = runAutoScheduler({
         employees, shifts, stations, holidays, config, isPeakDay,
+        // Pass the entire allSchedules map so the rolling-7-day window can
+        // see the trailing days of the prior month.
+        allSchedules,
       });
 
-      // Build preview stats by running the compliance engine against the
-      // candidate schedule (without mutating live state).
       const previewViolations = ComplianceEngine
-        .check(updatedEmployees, shifts, holidays, config, newSchedule)
+        .check(updatedEmployees, shifts, holidays, config, newSchedule, allSchedules)
         .filter(v => v.rule !== 'Weekly hours cap');
 
       let totalRequired = 0;
@@ -644,18 +888,17 @@ export default function App() {
 
       const stats = buildPreviewStats(
         newSchedule, shifts, updatedEmployees, previewViolations,
-        config.daysInMonth, totalRequired, totalFilled
+        config.daysInMonth, totalRequired, totalFilled,
       );
 
       setPendingScheduleResult({ schedule: newSchedule, employees: updatedEmployees, stats });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Auto-scheduler failed.');
+      showInfo(t('info.error.title'), e instanceof Error ? e.message : 'Auto-scheduler failed.');
     }
   };
 
   const applyPendingSchedule = () => {
     if (!pendingScheduleResult) return;
-    // Push current state onto the undo stack (cap at 5 entries) before replacing.
     setScheduleUndoStack(prev => [
       { schedule, employees, appliedAt: Date.now() },
       ...prev,
@@ -673,9 +916,7 @@ export default function App() {
     setScheduleUndoStack(rest);
   };
 
-  // PDF generation pulls in jspdf + jspdf-autotable + html2canvas (~360KB).
-  // Dynamic import means none of that is in the initial bundle — it only
-  // downloads when the user clicks "Generate PDF" the first time.
+  // PDF lazy-load. Pulls jspdf + jspdf-autotable + html2canvas only on first use.
   const handleExportPDF = async () => {
     const { generatePDFReport } = await import('./lib/pdfReport');
     generatePDFReport(employees, schedule, shifts, { ...config, holidays }, violations, stations, t);
@@ -694,45 +935,54 @@ export default function App() {
     setIsHolidayModalOpen(false);
   };
 
-  // Hourly coverage analysis based on config.shopOpeningTime / shopClosingTime
+  // Hourly coverage analysis. Honors per-day-of-week opening/closing
+  // overrides on Config so a Friday with a 10am→2am window is heat-mapped
+  // beyond the default close hour.
   const hourlyCoverage = useMemo(() => {
-    const startHour = parseHour(config.shopOpeningTime || '11:00');
-    const endHour = parseHour(config.shopClosingTime || '23:00');
-    const hours = Array.from({ length: Math.max(0, endHour - startHour) }, (_, i) => startHour + i);
-    
-    const coverage: Record<number, Record<number, number>> = {}; // day -> hour -> count
-    const requirements: Record<number, number> = {}; // hour -> minStaffSum
+    // Pick the union of [open, close) across every day so the heatmap has a
+    // single x-axis. Days with shorter windows simply leave their later
+    // hours zeroed out.
+    let unionStart = 24;
+    let unionEnd = 0;
+    for (let dow = 1; dow <= 7; dow++) {
+      const { open, close } = getOperatingHoursForDow(config, dow as DayOfWeek);
+      const o = parseHour(open);
+      const c = parseHour(close);
+      if (o < unionStart) unionStart = o;
+      if (c > unionEnd) unionEnd = c;
+    }
+    if (unionStart >= unionEnd) {
+      unionStart = parseHour(config.shopOpeningTime || '11:00');
+      unionEnd = parseHour(config.shopClosingTime || '23:00');
+    }
+    const hours = Array.from({ length: Math.max(0, unionEnd - unionStart) }, (_, i) => unionStart + i);
+
+    const coverage: Record<number, Record<number, number>> = {};
+    const dailyRequirements: Record<number, Record<number, number>> = {};
     const shiftMap = new Map<string, Shift>(shifts.map(s => [s.code, s]));
 
-    // isPeakDay is provided by the shared useCallback above
-
-    // Calculate dynamic requirements based on active stations
-    hours.forEach(h => {
-      requirements[h] = stations.reduce((sum, st) => {
-        const oh = parseHour(st.openingTime);
-        const ch = parseHour(st.closingTime);
-        // Note: For requirements map, we'll use peak HC as the "ideal" line or maybe just normal?
-        // Actually requirements logic needs to be per-day now if we want accurate gaps.
-        // Let's modify hourlyCoverage to return requirements as Record<number, Record<number, number>> (day -> hour -> req)
-        return sum; // Placeholder, see below
-      }, 0);
-    });
-
-    const dailyRequirements: Record<number, Record<number, number>> = {};
-
     for (let d = 1; d <= config.daysInMonth; d++) {
+      const date = new Date(config.year, config.month - 1, d);
+      const dow = (date.getDay() + 1) as DayOfWeek;
+      const { open: openStr, close: closeStr } = getOperatingHoursForDow(config, dow);
+      const dayOpen = parseHour(openStr);
+      const dayClose = parseHour(closeStr);
       coverage[d] = {};
       dailyRequirements[d] = {};
       const peak = isPeakDay(d);
-      
+
       hours.forEach(h => {
         coverage[d][h] = 0;
-        dailyRequirements[d][h] = stations.reduce((sum, st) => {
-          const oh = parseHour(st.openingTime);
-          const ch = parseHour(st.closingTime);
-          if (h >= oh && h < ch) return sum + (peak ? st.peakMinHC : st.normalMinHC);
-          return sum;
-        }, 0);
+        // Outside the day's operating window → no requirement.
+        const insideDayWindow = h >= dayOpen && h < dayClose;
+        dailyRequirements[d][h] = insideDayWindow
+          ? stations.reduce((sum, st) => {
+              const oh = parseHour(st.openingTime);
+              const ch = parseHour(st.closingTime);
+              if (h >= oh && h < ch) return sum + (peak ? st.peakMinHC : st.normalMinHC);
+              return sum;
+            }, 0)
+          : 0;
       });
 
       employees.forEach(emp => {
@@ -749,15 +999,8 @@ export default function App() {
       });
     }
     return { hours, coverage, requirements: dailyRequirements };
-  }, [employees, schedule, shifts, config, stations]);
+  }, [employees, schedule, shifts, config, stations, isPeakDay]);
 
-  // Station-attributed staffing gap. For each station whose peak coverage is
-  // short of its `peakMinHC`, surface the worst-hour shortfall as "this station
-  // needs +N more headcount." We don't try to attribute the gap to a role
-  // (that's always a guess); the station name is the source of truth and the
-  // user knows what role belongs there. A `roleHint` is included only when
-  // the station explicitly lists a non-generic role in `requiredRoles`, since
-  // that's a fact set by the user, not an inference.
   const staffingGapsByStation = useMemo(() => {
     type StationGap = { stationId: string; stationName: string; gap: number; roleHint?: string };
     const out: StationGap[] = [];
@@ -801,14 +1044,9 @@ export default function App() {
       });
     }
 
-    // Largest gap first so the most urgent stations float to the top.
     return out.sort((a, b) => b.gap - a.gap);
   }, [employees, stations, schedule, shifts, config, isPeakDay]);
 
-  // Roles available in the role-filter dropdown above the schedule grid. Sorted
-  // alphabetically so the menu is stable across renders even as the roster
-  // shifts. "Driver" is forced to the front because it's the most common
-  // operational filter in this domain.
   const rosterRoles = useMemo(() => {
     const set = new Set<string>();
     employees.forEach(e => { if (e.role) set.add(e.role); });
@@ -819,8 +1057,6 @@ export default function App() {
     return list;
   }, [employees]);
 
-  // Employees the schedule grid actually renders, after applying the in-tab
-  // search box (matches name / id / department) and the role dropdown.
   const filteredScheduleEmployees = useMemo(() => {
     const q = scheduleFilter.trim().toLowerCase();
     return employees.filter(e => {
@@ -834,11 +1070,6 @@ export default function App() {
     });
   }, [employees, scheduleFilter, scheduleRoleFilter]);
 
-  // Coverage % helpers. `overallCoveragePercent` looks at every day; `peakStability`
-  // restricts to peak days (weekends/holidays per config.peakDays + holiday calendar).
-  // Both compare actual hourly coverage to the per-station minimum-headcount
-  // requirements, and return 100 when there is nothing to cover (degenerate case
-  // — empty schedule or no peak days configured).
   const coverageMetrics = useMemo(() => {
     let totalRequired = 0;
     let totalCovered = 0;
@@ -868,11 +1099,58 @@ export default function App() {
   const peakStabilityPercent = coverageMetrics.peak;
   const overallCoveragePercent = coverageMetrics.overall;
 
+  // Total OT hours and pay for the active schedule. Surfaced in the simulation
+  // delta panel and the Dashboard FTE forecast.
+  const otSummary = useMemo(() => {
+    const cap = monthlyHourCap(config);
+    const otRateDay = config.otRateDay ?? 1.5;
+    const otRateNight = config.otRateNight ?? 2.0;
+    const holidayDateSet = new Set(holidays.map(h => h.date));
+    const shiftByCode = new Map(shifts.map(s => [s.code, s]));
+    let totalOTHours = 0;
+    let totalOTPay = 0;
+    let totalWorkHours = 0;
+    for (const emp of employees) {
+      const empSched = schedule[emp.empId] || {};
+      let totalHrs = 0;
+      let holiHrs = 0;
+      for (const [dayStr, entry] of Object.entries(empSched)) {
+        const dateStr = format(new Date(config.year, config.month - 1, parseInt(dayStr)), 'yyyy-MM-dd');
+        const shift = shiftByCode.get(entry.shiftCode);
+        if (!shift?.isWork) continue;
+        totalHrs += shift.durationHrs;
+        if (holidayDateSet.has(dateStr)) holiHrs += shift.durationHrs;
+      }
+      totalWorkHours += totalHrs;
+      const hourly = baseHourlyRate(emp, config);
+      const stdOT = Math.max(0, totalHrs - cap - holiHrs);
+      totalOTHours += Math.max(0, totalHrs - cap);
+      totalOTPay += stdOT * hourly * otRateDay + holiHrs * hourly * otRateNight;
+    }
+    const potentialHires = Math.ceil(totalOTHours / Math.max(1, cap));
+    return { totalOTHours, totalOTPay, potentialHires, totalWorkHours };
+  }, [employees, schedule, shifts, holidays, config]);
+
+  // Run coverage-gap detection after a paint that may have removed a station
+  // assignment. If a gap is found, queue up swap suggestions for the toast.
+  const surfaceCoverageHint = React.useCallback(
+    (empId: string, day: number, prevEntry: { shiftCode: string; stationId?: string } | undefined, newEntry: { shiftCode: string; stationId?: string } | undefined) => {
+      const gap = detectCoverageGap({
+        employees, shifts, stations, holidays, config, schedule,
+        empId, day, prevEntry, newEntry, isPeakDay,
+      });
+      if (!gap) return;
+      const suggestions = findSwapCandidates(gap, {
+        employees, shifts, stations, holidays, config, schedule, isPeakDay,
+      });
+      setCoverageHint({ gap, suggestions });
+    },
+    [employees, shifts, stations, holidays, config, schedule, isPeakDay],
+  );
+
   const handleCellClick = (empId: string, day: number) => {
+    const prev = schedule[empId]?.[day];
     if (paintMode) {
-      // Run a focused dry-run check before committing the paint. Warnings are
-      // displayed non-blocking so the manager can still override — most paint
-      // operations are deliberate corrections, not mistakes.
       const emp = employees.find(e => e.empId === empId);
       if (emp) {
         const warnings = previewAssignmentWarnings(emp, day, paintMode.shiftCode, schedule, shifts, holidays, config);
@@ -884,27 +1162,105 @@ export default function App() {
           setPaintWarnings(null);
         }
       }
-      setSchedule(prev => ({
-        ...prev,
+      const next = { shiftCode: paintMode.shiftCode, stationId: paintMode.stationId };
+      setSchedule(p => ({
+        ...p,
         [empId]: {
-          ...(prev[empId] || {}),
-          [day]: { shiftCode: paintMode.shiftCode, stationId: paintMode.stationId }
+          ...(p[empId] || {}),
+          [day]: next,
         }
       }));
+      surfaceCoverageHint(empId, day, prev, next);
     } else {
-      // Original cycle logic
       const entry = schedule[empId]?.[day];
       const current = typeof entry === 'string' ? entry : entry?.shiftCode || '';
       const idx = shifts.findIndex(s => s.code === current);
       const nextShift = shifts[(idx + 1) % shifts.length];
-      setSchedule(prev => ({
-        ...prev,
+      const next = { shiftCode: nextShift.code };
+      setSchedule(p => ({
+        ...p,
         [empId]: {
-          ...(prev[empId] || {}),
-          [day]: { shiftCode: nextShift.code }
+          ...(p[empId] || {}),
+          [day]: next,
         }
       }));
+      surfaceCoverageHint(empId, day, prev, next);
     }
+  };
+
+  // User picked a swap candidate from the coverage hint toast. Move the
+  // vacated shift onto the chosen employee. The move overwrites whatever
+  // they had on that day — usually OFF, occasionally another work shift
+  // (the toast warned about this when the candidate was already assigned).
+  const acceptCoverageSwap = (replacementEmpId: string) => {
+    if (!coverageHint) return;
+    const { gap } = coverageHint;
+    setSchedule(prev => ({
+      ...prev,
+      [replacementEmpId]: {
+        ...(prev[replacementEmpId] || {}),
+        [gap.day]: { shiftCode: gap.vacatedShiftCode, stationId: gap.station.id },
+      },
+    }));
+    setCoverageHint(null);
+  };
+
+  // Multi-company actions ---
+  const switchCompany = (id: string) => {
+    if (id === activeCompanyId) return;
+    if (simMode) {
+      // Don't let the user jump between companies mid-simulation — the
+      // baseline snapshot only covers the slice they entered with.
+      showInfo(t('sim.banner.title'), t('sim.locked.companyChange'));
+      return;
+    }
+    setActiveCompanyId(id);
+    setPaintMode(null);
+    setPendingScheduleResult(null);
+    setScheduleUndoStack([]);
+    setSelectedEmployees(new Set());
+  };
+
+  const addCompany = (name: string) => {
+    const id = `co-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    setCompaniesState(prev => [...prev, { id, name, color: '#4f46e5' }]);
+    setCompanyData(prev => ({
+      ...prev,
+      [id]: {
+        ...emptyCompanyData(),
+        config: { ...DEFAULT_CONFIG, company: name },
+      },
+    }));
+  };
+
+  const renameCompany = (id: string, name: string) => {
+    setCompaniesState(prev => prev.map(c => c.id === id ? { ...c, name } : c));
+    setCompanyData(prev => prev[id]
+      ? { ...prev, [id]: { ...prev[id], config: { ...prev[id].config, company: name } } }
+      : prev);
+  };
+
+  const deleteCompany = (id: string) => {
+    if (companies.length <= 1) {
+      showInfo(t('company.cannotDelete.title'), t('company.cannotDelete.body'));
+      return;
+    }
+    const target = companies.find(c => c.id === id);
+    setConfirmState({
+      isOpen: true,
+      title: t('company.confirmDelete.title'),
+      message: t('company.confirmDelete.body', { name: target?.name || id }),
+      onConfirm: () => {
+        const remaining = companies.filter(c => c.id !== id);
+        setCompaniesState(remaining);
+        setCompanyData(prev => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        if (activeCompanyId === id) setActiveCompanyId(remaining[0].id);
+      },
+    });
   };
 
   const handleDeleteHoliday = (date: string) => {
@@ -918,20 +1274,98 @@ export default function App() {
     });
   };
 
+  // --- Simulation mode ---
+  const enterSimMode = () => {
+    if (simMode) return;
+    setSimBaseline({
+      companies: structuredClone(companies),
+      activeCompanyId,
+      companyData: structuredClone(companyData),
+    });
+    setSimMode(true);
+  };
+  const exitSimMode = () => {
+    if (!simMode || !simBaseline) return;
+    // Discard sim changes — restore baseline.
+    setCompaniesState(simBaseline.companies);
+    setActiveCompanyId(simBaseline.activeCompanyId);
+    setCompanyData(simBaseline.companyData);
+    setSimBaseline(null);
+    setSimMode(false);
+  };
+  const applySimMode = () => {
+    if (!simMode) return;
+    // Keep current sim state; drop baseline so the next save persists it.
+    setSimBaseline(null);
+    setSimMode(false);
+  };
+  const resetSimMode = () => {
+    if (!simMode || !simBaseline) return;
+    setCompaniesState(simBaseline.companies);
+    setActiveCompanyId(simBaseline.activeCompanyId);
+    setCompanyData(simBaseline.companyData);
+  };
+
+  // Compute baseline metrics for the sim delta panel. Mirrors the live OT
+  // summary + coverage but pulled from the frozen baseline snapshot.
+  const simMetrics: SimDeltaMetric[] = useMemo(() => {
+    if (!simMode || !simBaseline) return [];
+    const baselineActive = simBaseline.companyData[simBaseline.activeCompanyId];
+    if (!baselineActive) return [];
+    const baseScheduleKey = `scheduler_schedule_${baselineActive.config.year}_${baselineActive.config.month}`;
+    const baseSchedule = baselineActive.allSchedules[baseScheduleKey] ?? {};
+    const baseShiftByCode = new Map(baselineActive.shifts.map(s => [s.code, s]));
+    const baseHolidayDates = new Set(baselineActive.holidays.map(h => h.date));
+    const baseCap = monthlyHourCap(baselineActive.config);
+    let baseOTHrs = 0;
+    let baseOTPay = 0;
+    for (const emp of baselineActive.employees) {
+      const empSched = baseSchedule[emp.empId] || {};
+      let totalHrs = 0;
+      let holiHrs = 0;
+      for (const [dayStr, entry] of Object.entries(empSched)) {
+        const dateStr = format(new Date(baselineActive.config.year, baselineActive.config.month - 1, parseInt(dayStr)), 'yyyy-MM-dd');
+        const shift = baseShiftByCode.get(entry.shiftCode);
+        if (!shift?.isWork) continue;
+        totalHrs += shift.durationHrs;
+        if (baseHolidayDates.has(dateStr)) holiHrs += shift.durationHrs;
+      }
+      const hourly = baseHourlyRate(emp, baselineActive.config);
+      const stdOT = Math.max(0, totalHrs - baseCap - holiHrs);
+      baseOTHrs += Math.max(0, totalHrs - baseCap);
+      baseOTPay += stdOT * hourly * (baselineActive.config.otRateDay ?? 1.5) + holiHrs * hourly * (baselineActive.config.otRateNight ?? 2.0);
+    }
+    const baseViolations = ComplianceEngine
+      .check(baselineActive.employees, baselineActive.shifts, baselineActive.holidays, baselineActive.config, baseSchedule, baselineActive.allSchedules)
+      .filter(v => v.rule !== 'Weekly hours cap')
+      .reduce((s, v) => s + (v.count || 1), 0);
+
+    const fmtIQD = (n: number) => `${Math.round(n).toLocaleString()}`;
+    return [
+      { label: t('sim.metric.workforce'), baseline: baselineActive.employees.length, sim: employees.length, higherIsBetter: true },
+      { label: t('sim.metric.coverage'), baseline: 0, sim: overallCoveragePercent, higherIsBetter: true, formatter: (n: number) => `${n}%` },
+      { label: t('sim.metric.otHours'), baseline: Math.round(baseOTHrs), sim: Math.round(otSummary.totalOTHours), higherIsBetter: false, formatter: (n: number) => `${n}h` },
+      { label: t('sim.metric.otPay'), baseline: Math.round(baseOTPay), sim: Math.round(otSummary.totalOTPay), higherIsBetter: false, formatter: fmtIQD },
+      { label: t('sim.metric.violations'), baseline: baseViolations, sim: violations.reduce((s, v) => s + (v.count || 1), 0), higherIsBetter: false },
+    ];
+    // Coverage on baseline isn't recomputed here — it would need its own
+    // hourlyCoverage pass. We surface live coverage delta only (baseline shown as 0 for rendering).
+  }, [simMode, simBaseline, employees.length, overallCoveragePercent, otSummary, violations, t]);
+
   return (
     <>
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleImportCSV} 
-        className="hidden" 
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleImportCSV}
+        className="hidden"
         accept=".csv"
       />
-      <input 
-        type="file" 
-        ref={backupInputRef} 
-        onChange={handleImportBackup} 
-        className="hidden" 
+      <input
+        type="file"
+        ref={backupInputRef}
+        onChange={handleImportBackup}
+        className="hidden"
         accept=".json"
       />
       <div className="flex h-screen bg-[#F3F4F6] font-sans text-slate-800 overflow-hidden">
@@ -941,6 +1375,21 @@ export default function App() {
           <h1 className="text-white font-bold tracking-tight text-lg uppercase">{t('sidebar.brand.line1')}</h1>
           <p className="text-blue-400 text-[10px] uppercase tracking-widest font-bold mt-1">{t('sidebar.brand.line2')} v{APP_VERSION}</p>
         </div>
+
+        {/* Company switcher */}
+        {dataLoaded && (
+          <div className="p-3 border-b border-slate-700/60">
+            <CompanySwitcher
+              companies={companies}
+              activeCompanyId={activeCompanyId}
+              onSwitch={switchCompany}
+              onAdd={addCompany}
+              onRename={renameCompany}
+              onDelete={deleteCompany}
+              locked={simMode}
+            />
+          </div>
+        )}
 
         <nav className="flex-1 py-4 overflow-y-auto">
           <TabButton active={activeTab === 'dashboard'} label={t('tab.dashboard')} index="01" icon={BarChart3} onClick={() => setActiveTab('dashboard')} />
@@ -978,7 +1427,10 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top Toolbar */}
-        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
+        <header className={cn(
+          "h-16 border-b px-8 flex items-center justify-between shrink-0 transition-colors",
+          simMode ? "bg-indigo-50 border-indigo-200" : "bg-white border-slate-200"
+        )}>
           <div className="flex gap-2">
             <button
               onClick={exportScheduleCSV}
@@ -1000,17 +1452,29 @@ export default function App() {
             >
               {t('toolbar.csvTemplate')}
             </button>
+            <button
+              onClick={simMode ? exitSimMode : enterSimMode}
+              className={cn(
+                "px-5 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 flex items-center gap-2 border",
+                simMode
+                  ? "bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700"
+                  : "bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+              )}
+            >
+              <FlaskConical className="w-3 h-3" />
+              {simMode ? t('sim.toolbar.exit') : t('sim.toolbar.enter')}
+            </button>
           </div>
           <div className="flex items-center gap-3" aria-live="polite">
             {(() => {
-              // Visual map for each save state. The "saved" pulse fades quickly
-              // so it doesn't feel chatty on every keystroke.
               const dotColor =
+                simMode ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)] animate-pulse' :
                 saveState === 'error' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]' :
                 saveState === 'saving' ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)] animate-pulse' :
                 saveState === 'pending' ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' :
                 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]';
               const label =
+                simMode ? t('sim.toolbar.statusLabel') :
                 saveState === 'error' ? t('toolbar.saveError') :
                 saveState === 'saving' ? t('toolbar.saving') :
                 saveState === 'pending' ? t('toolbar.savePending') :
@@ -1128,6 +1592,7 @@ export default function App() {
                 onRunAuto={handleRunAutoScheduler}
                 paintWarnings={paintWarnings}
                 onDismissPaintWarnings={() => setPaintWarnings(null)}
+                staleness={scheduleStaleness}
               />
             )}
 
@@ -1193,6 +1658,7 @@ export default function App() {
         onSave={handleSaveEmployee}
         employee={editingEmployee}
         stations={stations}
+        shifts={shifts}
         config={config}
       />
 
@@ -1203,14 +1669,14 @@ export default function App() {
         station={selectedStation}
       />
 
-      <HolidayModal 
+      <HolidayModal
         isOpen={isHolidayModalOpen}
         onClose={() => setIsHolidayModalOpen(false)}
         onSave={handleSaveHoliday}
         holiday={editingHoliday}
       />
 
-      <ShiftModal 
+      <ShiftModal
         isOpen={isShiftModalOpen}
         onClose={() => setIsShiftModalOpen(false)}
         onSave={handleSaveShift}
@@ -1227,12 +1693,35 @@ export default function App() {
         onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
       />
 
+      <ConfirmModal
+        isOpen={infoState.isOpen}
+        title={infoState.title || t('info.notice.title')}
+        message={infoState.message}
+        onConfirm={() => setInfoState(prev => ({ ...prev, isOpen: false }))}
+        onClose={() => setInfoState(prev => ({ ...prev, isOpen: false }))}
+        infoOnly
+      />
+
       <SchedulePreviewModal
         isOpen={pendingScheduleResult !== null}
         stats={pendingScheduleResult?.stats ?? null}
         monthLabel={format(new Date(config.year, config.month - 1, 1), 'MMMM yyyy')}
         onClose={() => setPendingScheduleResult(null)}
         onApply={applyPendingSchedule}
+      />
+
+      <SimulationDeltaPanel
+        isActive={simMode}
+        metrics={simMetrics}
+        onExit={exitSimMode}
+        onApply={applySimMode}
+        onReset={resetSimMode}
+      />
+
+      <CoverageHintToast
+        hint={coverageHint}
+        onDismiss={() => setCoverageHint(null)}
+        onPickReplacement={acceptCoverageSwap}
       />
     </div>
     </>
