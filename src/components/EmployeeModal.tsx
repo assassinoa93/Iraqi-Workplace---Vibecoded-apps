@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { Employee, Station, Config, Shift } from '../types';
 import { cn } from '../lib/utils';
 import { SettingField } from './Primitives';
+import { Switch } from './ui/Switch';
 import { useI18n } from '../lib/i18n';
 import { useModalKeys } from '../lib/hooks';
 import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHoursDivisor } from '../lib/payroll';
@@ -274,18 +275,18 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
           </div>
 
           <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isHazardous} onChange={e => setFormData({...formData, isHazardous: e.target.checked})} />
+             <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={formData.isHazardous} onChange={v => setFormData({...formData, isHazardous: v})} tone="rose" aria-label={t('modal.employee.flag.hazardous')} />
                 <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.employee.flag.hazardous')}</span>
-             </div>
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isIndustrialRotating} onChange={e => setFormData({...formData, isIndustrialRotating: e.target.checked})} />
+             </label>
+             <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={formData.isIndustrialRotating} onChange={v => setFormData({...formData, isIndustrialRotating: v})} tone="amber" aria-label={t('modal.employee.flag.industrial')} />
                 <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.employee.flag.industrial')}</span>
-             </div>
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.hourExempt} onChange={e => setFormData({...formData, hourExempt: e.target.checked})} />
+             </label>
+             <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={formData.hourExempt} onChange={v => setFormData({...formData, hourExempt: v})} aria-label={t('modal.employee.flag.exempt')} />
                 <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.employee.flag.exempt')}</span>
-             </div>
+             </label>
           </div>
 
           {/* Leave windows (sick / annual / maternity) are managed from the

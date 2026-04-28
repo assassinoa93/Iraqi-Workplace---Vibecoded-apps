@@ -325,3 +325,159 @@ export function analyzeWorkforce(args: AnalyzeArgs): WorkforcePlan {
     monthlyDelta,
   };
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Annual workforce analysis (v1.13)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// `analyzeWorkforceAnnual` runs the monthly analyzer for every month of a
+// given year and aggregates the results. It surfaces:
+//   - Per-month plans (so the supervisor can spot which months drive the
+//     recommendation — e.g. "Ramadan reduces demand, but Eid spikes peak
+//     coverage and pulls the headcount up")
+//   - Annual totals + averages
+//   - The peak month + valley month
+//   - "Implement starting in month X" rollup that estimates the annual IQD
+//     savings if the supervisor adopts the recommendation from a chosen
+//     month onwards (instead of the start of the year)
+//
+// Holidays are fed through wholesale; the analyzer filters them per-month
+// itself by date prefix. PeakDays config + holiday list = peak detection
+// per month.
+
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+export interface MonthlyPlanSummary {
+  monthIndex: number;        // 1..12 (1 = January)
+  monthName: string;         // 'Jan', 'Feb', …
+  monthlyRequiredHours: number;
+  recommendedFTE: number;
+  recommendedPartTime: number;
+  recommendedMonthlySalary: number;
+  // The complete monthly plan for drill-down. UI may keep just the summary
+  // when rendering the at-a-glance row and lazy-load the full plan when the
+  // supervisor expands a month.
+  plan: WorkforcePlan;
+}
+
+export interface AnnualWorkforcePlan {
+  year: number;
+  byMonth: MonthlyPlanSummary[];
+  // Annual aggregates.
+  annualRequiredHours: number;
+  annualRecommendedSalary: number;
+  // For benchmarking: the current monthly salary × 12. The annual
+  // recommended salary minus this is the year's payroll delta.
+  annualCurrentSalary: number;
+  annualDelta: number;
+  // Average headcount across the year.
+  avgRecommendedFTE: number;
+  avgRecommendedPartTime: number;
+  // Highest-demand month (peak) + lowest-demand month (valley) — the
+  // analyzer doesn't know about Ramadan/Eid by name but the demand curve
+  // makes those visible.
+  peakMonthIndex: number;
+  valleyMonthIndex: number;
+  // Implementation-from-month savings table. Maps each starting month to
+  // the IQD saved if the recommendation is adopted from that month forward
+  // (i.e. months before stay on the current roster, months from start
+  // onward switch to the recommended mix). Use this to surface "implement
+  // in May → save X IQD this year" alongside other start months.
+  savingsByStartMonth: Array<{ monthIndex: number; monthName: string; remainingMonths: number; savings: number }>;
+}
+
+export interface AnalyzeAnnualArgs {
+  employees: Employee[];
+  shifts: Shift[];
+  stations: Station[];
+  holidays: PublicHoliday[];
+  baseConfig: Config;        // year is taken from here; month is overridden internally
+  // Peak-day predicate factory: given a config (with the active year/month),
+  // return the per-day predicate. The factory pattern lets the caller
+  // re-use the existing `isPeakDay` logic from App.tsx without rebuilding
+  // the date math from scratch.
+  isPeakDayFor: (config: Config) => (day: number) => boolean;
+}
+
+export function analyzeWorkforceAnnual({
+  employees, shifts, stations, holidays, baseConfig, isPeakDayFor,
+}: AnalyzeAnnualArgs): AnnualWorkforcePlan {
+  const byMonth: MonthlyPlanSummary[] = [];
+  let annualRequiredHours = 0;
+  let annualRecommendedSalary = 0;
+
+  for (let m = 1; m <= 12; m++) {
+    const daysInMonth = new Date(baseConfig.year, m, 0).getDate();
+    const monthCfg: Config = { ...baseConfig, month: m, daysInMonth };
+    const monthIsPeakDay = isPeakDayFor(monthCfg);
+    const plan = analyzeWorkforce({
+      employees, shifts, stations, holidays, config: monthCfg, isPeakDay: monthIsPeakDay,
+    });
+    const monthRequired = plan.byRole.reduce((s, r) => s + r.monthlyRequiredHours, 0);
+    annualRequiredHours += monthRequired;
+    annualRecommendedSalary += plan.recommendedMonthlySalary;
+    byMonth.push({
+      monthIndex: m,
+      monthName: MONTH_NAMES[m - 1],
+      monthlyRequiredHours: monthRequired,
+      recommendedFTE: plan.totalRecommendedFTE,
+      recommendedPartTime: plan.totalRecommendedPartTime,
+      recommendedMonthlySalary: plan.recommendedMonthlySalary,
+      plan,
+    });
+  }
+
+  const avgRecommendedFTE = byMonth.reduce((s, m) => s + m.recommendedFTE, 0) / 12;
+  const avgRecommendedPartTime = byMonth.reduce((s, m) => s + m.recommendedPartTime, 0) / 12;
+
+  // Peak / valley months by required hours.
+  let peakMonthIndex = 1;
+  let valleyMonthIndex = 1;
+  for (const m of byMonth) {
+    if (m.monthlyRequiredHours > byMonth[peakMonthIndex - 1].monthlyRequiredHours) peakMonthIndex = m.monthIndex;
+    if (m.monthlyRequiredHours < byMonth[valleyMonthIndex - 1].monthlyRequiredHours) valleyMonthIndex = m.monthIndex;
+  }
+
+  // Current monthly salary stays constant across the year (no historical
+  // payroll changes are modelled). Annual current = monthly × 12.
+  const monthlyCurrentSalary = employees.reduce((s, e) => s + (e.baseMonthlySalary || 0), 0);
+  const annualCurrentSalary = monthlyCurrentSalary * 12;
+  const annualDelta = annualRecommendedSalary - annualCurrentSalary;
+
+  // Implementation-from-month: for each potential start month, sum the
+  // delta from that month onward. Months before stay on current; months
+  // from start onward switch to recommended. The supervisor uses this to
+  // pick when to roll out the change — the further into the year, the
+  // smaller the savings (fewer months of impact).
+  const savingsByStartMonth = byMonth.map(m => {
+    let savings = 0;
+    for (let i = m.monthIndex - 1; i < 12; i++) {
+      // If recommended < current, byMonth[i].recommendedMonthlySalary -
+      // monthlyCurrentSalary is negative. We invert sign so "savings" is
+      // a positive number when it's saving money.
+      savings += monthlyCurrentSalary - byMonth[i].recommendedMonthlySalary;
+    }
+    return {
+      monthIndex: m.monthIndex,
+      monthName: m.monthName,
+      remainingMonths: 13 - m.monthIndex,
+      savings: Math.round(savings),
+    };
+  });
+
+  return {
+    year: baseConfig.year,
+    byMonth,
+    annualRequiredHours,
+    annualRecommendedSalary: Math.round(annualRecommendedSalary),
+    annualCurrentSalary: Math.round(annualCurrentSalary),
+    annualDelta: Math.round(annualDelta),
+    avgRecommendedFTE,
+    avgRecommendedPartTime,
+    peakMonthIndex,
+    valleyMonthIndex,
+    savingsByStartMonth,
+  };
+}

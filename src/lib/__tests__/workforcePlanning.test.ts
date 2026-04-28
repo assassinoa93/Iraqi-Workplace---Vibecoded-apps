@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeWorkforce, PART_TIME_MONTHLY_HOURS } from '../workforcePlanning';
+import { analyzeWorkforce, analyzeWorkforceAnnual, PART_TIME_MONTHLY_HOURS } from '../workforcePlanning';
 import { Employee, Shift, Station, PublicHoliday, Config } from '../../types';
 
 const config: Config = {
@@ -171,5 +171,78 @@ describe('analyzeWorkforce — payroll delta', () => {
 
   it('exposes the part-time monthly hours constant for the UI', () => {
     expect(PART_TIME_MONTHLY_HOURS).toBe(96);
+  });
+});
+
+describe('analyzeWorkforceAnnual', () => {
+  const station: Station = {
+    id: 'ST-A', name: 'Counter', normalMinHC: 1, peakMinHC: 1,
+    openingTime: '11:00', closingTime: '23:00',
+  };
+  const isPeakDayFor = (cfg: Config) => (day: number) => {
+    const dow = new Date(cfg.year, cfg.month - 1, day).getDay() + 1;
+    return [5, 6, 7].includes(dow);
+  };
+
+  it('returns 12 monthly summaries', () => {
+    const annual = analyzeWorkforceAnnual({
+      employees: [], shifts: [], stations: [station], holidays: [], baseConfig: config, isPeakDayFor,
+    });
+    expect(annual.byMonth).toHaveLength(12);
+    expect(annual.byMonth[0].monthIndex).toBe(1);
+    expect(annual.byMonth[11].monthIndex).toBe(12);
+  });
+
+  it('aggregates annual hours across every month', () => {
+    const annual = analyzeWorkforceAnnual({
+      employees: [], shifts: [], stations: [station], holidays: [], baseConfig: config, isPeakDayFor,
+    });
+    expect(annual.annualRequiredHours).toBeGreaterThan(0);
+    // Sum of monthly hours equals the annual aggregate.
+    const sum = annual.byMonth.reduce((s, m) => s + m.monthlyRequiredHours, 0);
+    expect(annual.annualRequiredHours).toBeCloseTo(sum, 1);
+  });
+
+  it('identifies a peak month and a valley month', () => {
+    const annual = analyzeWorkforceAnnual({
+      employees: [], shifts: [], stations: [station], holidays: [], baseConfig: config, isPeakDayFor,
+    });
+    expect(annual.peakMonthIndex).toBeGreaterThanOrEqual(1);
+    expect(annual.peakMonthIndex).toBeLessThanOrEqual(12);
+    const peakHrs = annual.byMonth[annual.peakMonthIndex - 1].monthlyRequiredHours;
+    const valleyHrs = annual.byMonth[annual.valleyMonthIndex - 1].monthlyRequiredHours;
+    expect(peakHrs).toBeGreaterThanOrEqual(valleyHrs);
+  });
+
+  it('exposes a savings table for every start month with descending remaining months', () => {
+    const annual = analyzeWorkforceAnnual({
+      employees: [], shifts: [], stations: [station], holidays: [], baseConfig: config, isPeakDayFor,
+    });
+    expect(annual.savingsByStartMonth).toHaveLength(12);
+    expect(annual.savingsByStartMonth[0].remainingMonths).toBe(12); // start in Jan = 12 months affected
+    expect(annual.savingsByStartMonth[11].remainingMonths).toBe(1); // start in Dec = 1 month
+  });
+
+  it('computes annualDelta = recommended × 12 minus current × 12', () => {
+    const annual = analyzeWorkforceAnnual({
+      employees: Array.from({ length: 5 }, (_, i) => mkEmp(`E${i}`)),
+      shifts: [], stations: [station], holidays: [], baseConfig: config, isPeakDayFor,
+    });
+    // 5 employees × 1.5M IQD × 12 = 90M IQD current annual
+    expect(annual.annualCurrentSalary).toBe(5 * 1_500_000 * 12);
+    // Recommendation has fewer FTE → annualDelta should be negative
+    expect(annual.annualDelta).toBeLessThan(0);
+  });
+
+  it('returns positive savings when implementing the recommendation in January (full year impact)', () => {
+    const annual = analyzeWorkforceAnnual({
+      employees: Array.from({ length: 5 }, (_, i) => mkEmp(`E${i}`)),
+      shifts: [], stations: [station], holidays: [], baseConfig: config, isPeakDayFor,
+    });
+    const janRow = annual.savingsByStartMonth[0];
+    expect(janRow.savings).toBeGreaterThan(0);
+    // December savings should be smaller (only one month of impact)
+    const decRow = annual.savingsByStartMonth[11];
+    expect(decRow.savings).toBeLessThan(janRow.savings);
   });
 });

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, CalendarRange, Sparkles } from 'lucide-react';
 import { Shift } from '../types';
+import { Switch } from './ui/Switch';
 import { useI18n } from '../lib/i18n';
 import { useModalKeys } from '../lib/hooks';
 
@@ -127,13 +128,14 @@ export function BulkAssignModal({ isOpen, onClose, selectedCount, shifts, daysIn
               </div>
 
               <div className="flex items-center gap-2">
-                <input
+                <Switch
                   id="bulk-overwrite"
-                  type="checkbox"
                   checked={overwrite}
-                  onChange={e => setOverwrite(e.target.checked)}
+                  onChange={setOverwrite}
+                  tone="amber"
+                  aria-labelledby="bulk-overwrite-label"
                 />
-                <label htmlFor="bulk-overwrite" className="text-[11px] font-bold text-slate-700 uppercase tracking-widest">
+                <label htmlFor="bulk-overwrite" id="bulk-overwrite-label" className="text-[11px] font-bold text-slate-700 uppercase tracking-widest cursor-pointer">
                   {t('bulkAssign.overwrite')}
                 </label>
               </div>

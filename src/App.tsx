@@ -456,6 +456,17 @@ export default function App() {
     return config.peakDays.includes(dayOfWeek) || holidayDates.has(format(date, 'yyyy-MM-dd'));
   }, [config, holidays]);
 
+  // Same logic, factory variant — given any config (with arbitrary year/
+  // month), build a per-day predicate. Used by the annual workforce
+  // planner so each month's analysis honours the user's peak-day settings
+  // and the holiday list (filtered per-month inside the analyzer).
+  const isPeakDayFor = React.useCallback((cfg: Config) => (day: number): boolean => {
+    const date = new Date(cfg.year, cfg.month - 1, day);
+    const dayOfWeek = date.getDay() + 1;
+    const holidayDates = new Set(holidays.map(h => h.date));
+    return (cfg.peakDays || []).includes(dayOfWeek) || holidayDates.has(format(date, 'yyyy-MM-dd'));
+  }, [holidays]);
+
   // Schedule staleness — finds entries that reference shift codes / station ids
   // / employee ids that no longer exist. Surfaces a banner so the user can
   // re-run auto-scheduler instead of silently working with broken assignments.
@@ -1870,10 +1881,10 @@ export default function App() {
           <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
+            initial={{ opacity: 0, y: 8, scale: 0.995 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.998 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
             <Suspense fallback={
               <div className="flex items-center justify-center py-32">
@@ -1929,7 +1940,7 @@ export default function App() {
                 holidays={holidays}
                 config={config}
                 schedule={schedule}
-                isPeakDay={isPeakDay}
+                isPeakDayFor={isPeakDayFor}
                 prevMonth={prevMonth}
                 nextMonth={nextMonth}
                 onGoToRoster={() => setActiveTab('roster')}

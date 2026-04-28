@@ -2,6 +2,36 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v1.13.0 — 2026-04-28
+
+UX polish + Workforce Planning goes annual. Four user-reported quality-of-life requests addressed in one batch.
+
+**Schedule grid — sticky top-rail scrollbar**
+- Pre-1.13 the only horizontal scrollbar lived at the bottom of the grid container. With 30+ employees on screen the bottom of the grid is OFF-SCREEN, so panning across the calendar required scrolling the whole page down to find the bar, dragging it, then scrolling back up. v1.13 adds a synchronised "rail" scrollbar at the top of the grid that stays inside the visible viewport — drag either thumb and both move in lockstep. Apple-style thin pill thumb on a faded track, always visible.
+
+**Apple-style toggle component**
+- New `<Switch>` component replaces raw `<input type="checkbox">` for boolean feature toggles. Pill track + sliding circular thumb + 220 ms ease-out cubic, focus ring matches the accent. Five tones (indigo / emerald / rose / amber / blue) so the colour itself can signal meaning (rose for "enforce" rules, emerald for "counts as work", etc.). Replaced in EmployeeModal, ShiftModal, BulkAssignModal, and VariablesTab. Multi-select row checkboxes (Roster) stay as actual checkboxes since they're for data selection, not feature state.
+
+**Tab transitions polished**
+- The lazy-loaded tab swap now uses an Apple-flavour ease-out cubic (`cubic-bezier(0.22, 1, 0.36, 1)`) with a slight scale + vertical lift instead of plain linear opacity. 220 ms duration. Subtle but the transition feels intentional.
+
+**Workforce Planning — annual analysis**
+- Pre-1.13 the tab analyzed only the active month, which made the recommendation jumpy: Ramadan dropped demand, Eid spiked it, and the supervisor couldn't see the bigger picture. v1.13 runs the monthly analyzer for every month of the year and surfaces:
+  - **Annual KPI strip**: total annual demand-hours, average recommended FTE/PT across the year, payroll delta vs (current monthly bill × 12).
+  - **Monthly demand bar chart**: 12 bars with the peak month flagged red, valley month flagged green, and the active drill month flagged blue. Click any bar to drill into that month's per-role plan.
+  - **Per-role drill-down**: collapsible cards showing current vs recommended FTE/PT for the picked month, with the same demand-split visual + per-station breakdown as before.
+  - **Implementation timing table**: 12 cards, one per potential start month. Each shows the IQD savings if the supervisor adopts the recommendation from that month forward (months before stay on current; months from start onward switch to recommended). Use this to decide WHEN to roll out the change — savings shrink the later you start, and the panel makes that visible at a glance.
+- Math lives in `src/lib/workforcePlanning.ts` as `analyzeWorkforceAnnual` (6 new unit tests covering aggregation, peak/valley detection, savings table sign-correctness).
+
+**Tests**
+- 6 new annual-workforce tests bringing the file to 17. 86 tests total, all passing.
+
+**Architecture**
+- `src/components/ui/Switch.tsx` — new toggle primitive.
+- `src/lib/workforcePlanning.ts` — extended with `analyzeWorkforceAnnual` + `MonthlyPlanSummary` + `AnnualWorkforcePlan` types.
+- `src/tabs/WorkforcePlanningTab.tsx` — rebuilt around the annual view.
+- `src/index.css` — scroll-rail, slider, and toggle styles + Apple ease-out cubic for shared use.
+
 ## v1.12.0 — 2026-04-28
 
 UX polish + Workforce Planning tab. Three reported UX issues from v1.11 plus a substantial new tab that answers "what does my ideal roster look like?".

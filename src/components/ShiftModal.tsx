@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { X, AlertCircle } from 'lucide-react';
 import { Shift, Config } from '../types';
 import { SettingField } from './Primitives';
+import { Switch } from './ui/Switch';
 import { useI18n } from '../lib/i18n';
 import { useModalKeys } from '../lib/hooks';
 import { parseHour } from '../lib/time';
@@ -87,14 +88,14 @@ export function ShiftModal({ isOpen, onClose, onSave, shift, config }: ShiftModa
           )}
 
           <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isHazardous} onChange={e => setFormData({...formData, isHazardous: e.target.checked})} />
+             <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={formData.isHazardous} onChange={v => setFormData({...formData, isHazardous: v})} tone="rose" aria-label="Hazardous Shift" />
                 <span className="text-[10px] font-bold text-slate-600 uppercase">Hazardous Shift</span>
-             </div>
-             <div className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.isWork} onChange={e => setFormData({...formData, isWork: e.target.checked})} />
+             </label>
+             <label className="flex items-center gap-2 cursor-pointer">
+                <Switch checked={formData.isWork} onChange={v => setFormData({...formData, isWork: v})} tone="emerald" aria-label="Counts as Work" />
                 <span className="text-[10px] font-bold text-slate-600 uppercase">Counts as Work</span>
-             </div>
+             </label>
           </div>
 
           <div className="space-y-2">

@@ -59,17 +59,17 @@ A professional, local-first workforce management and automated scheduling system
 - **🧬 Backward-compatible data layer**: A central `src/lib/migration.ts` normaliser runs every loaded record through field-by-field defaults. Schemas can grow (new optional fields, future structural changes via `CURRENT_DATA_VERSION`) without breaking older backups.
 - **🔐 Verifiable builds**: Every release ships with a `SHA256SUMS.txt` so you can confirm the installer is byte-identical to what GitHub Actions built from this open-source code.
 - **♿ Accessible**: All modals trap focus and close on Escape. Every icon-only button has an `aria-label`. Tables use semantic markup with sortable column headers.
-- **🧪 Tested**: 80 Vitest unit tests across compliance engine, auto-scheduler, coverage-hint detection, staffing advisory math, OT analysis, and workforce planning — daily / weekly caps, rest periods, consecutive days, holiday OT + comp-day, comp-day choice (cash 2× vs paid day off in lieu), driver caps, Ramadan, maternity, sick leave, violation grouping, leave-driven coverage hints, PH-debt rotation, per-station hire breakdown, over-cap vs holiday-premium pool attribution, FTE/PT mix recommendations. Run `npm test` to verify.
+- **🧪 Tested**: 86 Vitest unit tests across compliance engine, auto-scheduler, coverage-hint detection, staffing advisory math, OT analysis, and workforce planning (monthly + annual) — daily / weekly caps, rest periods, consecutive days, holiday OT + comp-day, comp-day choice (cash 2× vs paid day off in lieu), driver caps, Ramadan, maternity, sick leave, violation grouping, leave-driven coverage hints, PH-debt rotation, per-station hire breakdown, over-cap vs holiday-premium pool attribution, FTE/PT mix recommendations. Run `npm test` to verify.
 
 ## 🚀 Quick Start (Recommended)
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v1.12.0)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-1.12.0.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v1.13.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-1.13.0.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-1.12.0.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-1.13.0.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -77,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.11.x). This wizard will update Iraqi Labor Scheduler to v1.12.0…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.12.x). This wizard will update Iraqi Labor Scheduler to v1.13.0…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -218,6 +218,16 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v1.13
+
+| Area | Change |
+|------|--------|
+| **Master Schedule — sticky horizontal scrollbar** | The schedule grid's only horizontal scrollbar used to live at the bottom of the container — off-screen for tall rosters, so panning across the calendar required scrolling the page down to grab the bar, dragging, then scrolling back up. v1.13 adds a synchronised "rail" scrollbar at the TOP of the grid that stays inside the visible viewport. Apple-style thin pill thumb on a faded track, always visible, both rails move in lockstep. |
+| **Apple-style toggle component** | New `<Switch>` primitive replaces raw `<input type="checkbox">` for boolean feature toggles. Pill track + sliding circular thumb + 220 ms ease-out cubic, focus ring matches the accent. Replaced in EmployeeModal, ShiftModal, BulkAssignModal, and VariablesTab. Multi-select row checkboxes (Roster) stay as actual checkboxes since they're for data selection, not feature state. |
+| **Tab transitions polished** | Lazy-loaded tab swaps now use an Apple-flavour ease-out cubic with a slight scale + vertical lift instead of plain linear opacity. Subtle but the transition feels intentional. |
+| **Workforce Planning — annual view** | Pre-1.13 the tab analyzed only the active month, which made the recommendation jumpy. v1.13 runs the analyzer for every month of the year and surfaces an annual KPI strip (total demand-hours, average FTE/PT, payroll delta vs current × 12), a 12-bar monthly demand chart with peak/valley highlighting, click-to-drill into any month's per-role plan, and an **implementation timing table** — 12 cards showing the IQD savings if the recommendation is adopted from each potential start month. Use the timing table to decide WHEN to roll out the change, not just whether. |
+| **Carried from v1.12** | New Coverage & OT Analysis tab; Workforce Planning tab; suggestion-pane queue with bulk-operation detection; comp-day workflow (Art. 74). |
 
 ## 📦 What's new in v1.12
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { ShieldCheck, Truck, Flame, Calendar, Clock, AlertCircle, Moon, Users } from 'lucide-react';
 import { Config, DayOfWeek } from '../types';
 import { SettingField } from './Primitives';
+import { Switch } from './ui/Switch';
 import { useI18n } from '../lib/i18n';
 
 const DOW_KEY: Record<DayOfWeek, string> = {
@@ -225,13 +226,14 @@ export function VariablesTab({ config, setConfig }: Props) {
               };
               return (
                 <div key={dow} className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${enabled ? 'border-purple-200 bg-purple-50/40' : 'border-slate-200 bg-white'}`}>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={enabled}
-                    onChange={e => {
-                      if (e.target.checked) setOverride({ open, close });
+                    onChange={v => {
+                      if (v) setOverride({ open, close });
                       else setOverride(undefined);
                     }}
+                    tone="indigo"
+                    size="sm"
                     aria-label={`Override hours for ${t(DOW_KEY[dow])}`}
                   />
                   <span className="text-[11px] font-bold text-slate-700 uppercase tracking-widest min-w-[80px]">{t(DOW_KEY[dow])}</span>
@@ -269,13 +271,14 @@ export function VariablesTab({ config, setConfig }: Props) {
         </div>
         <div className="p-5 space-y-4">
           <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
+            <Switch
               id="enforce-art86"
               checked={!!config.enforceArt86NightWork}
-              onChange={e => setConfig(prev => ({ ...prev, enforceArt86NightWork: e.target.checked }))}
+              onChange={v => setConfig(prev => ({ ...prev, enforceArt86NightWork: v }))}
+              tone="rose"
+              aria-labelledby="enforce-art86-label"
             />
-            <label htmlFor="enforce-art86" className="text-[11px] font-bold text-slate-700 uppercase tracking-widest">{t('variables.art86.enable')}</label>
+            <label htmlFor="enforce-art86" id="enforce-art86-label" className="text-[11px] font-bold text-slate-700 uppercase tracking-widest cursor-pointer">{t('variables.art86.enable')}</label>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <SettingField

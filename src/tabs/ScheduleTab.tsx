@@ -151,6 +151,38 @@ export function ScheduleTab({
   const [isDragPainting, setIsDragPainting] = useState(false);
   const lastClickedCellRef = useRef<{ empId: string; day: number } | null>(null);
 
+  // Refs for the sticky top scrollbar mirror (v1.13). Two separate scroll
+  // containers — the visible "rail" at the top of the grid and the actual
+  // grid container below it — synchronised so dragging either thumb pans
+  // both. A flag ref prevents feedback loops when one scroll triggers the
+  // other.
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollMirrorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const grid = gridScrollRef.current;
+    const top = topScrollMirrorRef.current;
+    if (!grid || !top) return;
+    let syncing = false;
+    const onGrid = () => {
+      if (syncing) return;
+      syncing = true;
+      top.scrollLeft = grid.scrollLeft;
+      requestAnimationFrame(() => { syncing = false; });
+    };
+    const onTop = () => {
+      if (syncing) return;
+      syncing = true;
+      grid.scrollLeft = top.scrollLeft;
+      requestAnimationFrame(() => { syncing = false; });
+    };
+    grid.addEventListener('scroll', onGrid, { passive: true });
+    top.addEventListener('scroll', onTop, { passive: true });
+    return () => {
+      grid.removeEventListener('scroll', onGrid);
+      top.removeEventListener('scroll', onTop);
+    };
+  }, []);
+
   // Drag releases on mouseup anywhere — even outside the grid. Without the
   // window listener a release outside the grid would leave the grid stuck
   // in dragging mode.
@@ -471,7 +503,21 @@ export function ScheduleTab({
             </button>
           </div>
         )}
-        <div className="overflow-x-auto">
+        {/* Sticky top-rail scrollbar (v1.13). The native scrollbar lives at
+            the BOTTOM of the grid container, which is off-screen when the
+            user is looking at the top rows of a tall roster. This rail
+            mirrors the grid's horizontal scroll position and stays inside
+            the visible viewport so the user can pan the calendar without
+            scrolling all the way down to find the scrollbar. */}
+        <div
+          ref={topScrollMirrorRef}
+          className="overflow-x-auto sticky top-0 z-30 bg-slate-50/80 backdrop-blur-sm border-b border-slate-200 schedule-top-scrollbar"
+          style={{ height: 14 }}
+          aria-hidden
+        >
+          <div style={{ width: totalGridWidth, minWidth: totalGridWidth, height: 1 }} />
+        </div>
+        <div className="overflow-x-auto" ref={gridScrollRef}>
           <div style={{ width: totalGridWidth, minWidth: totalGridWidth }}>
             {/* Sticky day header */}
             <div className="flex bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
