@@ -7,7 +7,7 @@ A professional, local-first workforce management and automated scheduling system
 ## 🌟 Key Features
 
 ### Compliance & legal
-- **⚖️ Compliance engine**: Automated checks for daily/weekly hour caps (Art. 67/70), hazardous-work caps (Art. 68), mandatory rest (Art. 71-72), holiday compensation (Art. 73-74), **transport-worker rules for drivers (Art. 88)**, **sick leave (Art. 84)**, **maternity leave (Art. 87)**, and the new **Art. 86 women's night-work rule** for industrial undertakings.
+- **⚖️ Compliance engine**: Automated checks for daily/weekly hour caps (Art. 67/70), hazardous-work caps (Art. 68), mandatory rest (Art. 71-72), holiday compensation (Art. 73-74), **transport-worker rules for drivers (Art. 88)**, **sick leave (Art. 84)**, **maternity leave (Art. 87)**, and the **Art. 86 women's night-work rule** for industrial undertakings. Findings are split into two severity tiers — `'violation'` for hard rule breaches that drag the compliance score down, and `'info'` for legitimate operational situations the supervisor needs to be aware of (e.g. holiday worked → eligible for double pay; comp day owed within 7 days). The platform aids compliance through reporting, never enforces by blocking.
 - **📜 Legal Variables tab**: Every cap (daily / weekly / hazardous / driver / OT multipliers / Ramadan reduced-hours / Art. 86 night window) is editable in one place with the governing article tagged on each value. Edits flow live into the engine and the auto-scheduler.
 - **🌙 Ramadan mode**: Set a date range and a reduced daily-hour cap (default 6h). The auto-scheduler refuses to assign longer shifts to non-driver, non-hazardous staff during the window; the engine flags any breach as an `(Ramadan)` violation.
 - **🤰 Maternity leave (Art. 87)**: Mark protected 14-week leave on any female employee. The auto-scheduler stamps `MAT` on those days and skips the employee for assignments. Manual work shifts during the window surface as a violation.
@@ -29,8 +29,11 @@ A professional, local-first workforce management and automated scheduling system
 - **🔍 Roster + schedule grid filters**: Search by name / ID / department, filter by role, sort columns. The schedule grid is fully virtualized — large rosters (50+) stay snappy.
 
 ### Productivity
-- **📅 Multi-range leave manager**: Replaces the single date-range fields on the Employee modal. Open Credits & Payroll, click *Manage* on any row, and add as many leave windows as you need (annual / sick / maternity), each with its own start/end and optional notes. The auto-scheduler, compliance engine, and coverage-hint toast all read from the new structure via a single helper (`getEmployeeLeaveOnDate`); legacy single-range data is back-compatible and surfaces as editable rows on first open.
-- **🖱️ Schedule grid power-ups**: Drag the mouse across cells in paint mode to fill a swath in one motion; Shift+click to rectangle-fill from the last clicked cell to the current one (one undo entry per range). Per-cell undo (Ctrl+Z) reverts the most recent paint without touching the rest of the month — separate from the existing 5-deep Auto-Schedule undo. Number keys 1–9 still pick a paint code, Esc clears paint mode.
+- **🪟 Live Suggestion Pane (Schedule tab)**: Persistent right rail that replaces the bottom-right toast. Two sections: **coverage suggestions** (live candidate list when a manual edit creates a gap, with one-click swap and a ⭐ recommended pick) and **recent changes** (per-session log of every cell edit — paint, cycle, swap, leave-stamp — each with its own undo button). Collapsible to a thin tab against the right edge. Cross-tab edits (e.g. adding a leave from Credits & Payroll) still surface a fallback toast on non-Schedule tabs.
+- **📊 3-Mode Staffing Advisory (Dashboard)**: Tab strip on the dashboard advisory card flips between hiring strategies — *Eliminate Overtime* (absorb every OT hour into FTE shifts), *Optimal Coverage* (close every peak-hour gap), *Best of Both* (the conservative ceiling). Each shows hires needed, OT saved (IQD/mo), salary added (IQD/mo), and net monthly delta so the supervisor can weigh tradeoffs before committing.
+- **📅 Multi-range leave manager**: Open Credits & Payroll, click *Manage* on any employee, and add as many leave windows as you need (annual / sick / maternity) each with its own start/end and notes. Adding a leave automatically stamps the matching `AL` / `SL` / `MAT` codes on the schedule grid AND surfaces a coverage-hint with swap candidates for the most-impactful affected day — single source of truth, no double-input.
+- **🎁 Public-holiday comp days**: The auto-scheduler tracks per-employee comp-day debt (incremented on each PH-work assignment, decremented on the next OFF/leave) and biases the candidate sort to push debtors toward OFF in the days following — naturally satisfying Art. 74's compensation-day expectation. A `Comp day owed` info-finding fires when no rest appears within 7 days.
+- **🖱️ Schedule grid power-ups**: Drag-to-paint, Shift+click range fill, per-cell undo (Ctrl+Z) separate from the Auto-Schedule undo, today indicator (blue ring) on the active day, holiday dot in the header with full holiday name in the tooltip, and a footer summary bar (total work hours, employees at-cap / near-cap, employees with any leave-day this month).
 - **📋 Bulk shift assignment**: Select N employees in the Roster, hit *Assign Shift*, pick a shift code and day range, choose whether to overwrite existing entries — paints the rectangle in one shot.
 - **👤 Per-employee labor-law card**: Hover any employee name in the schedule grid to see a tooltip with hours-vs-cap, peak weekly window, longest streak, and last day worked. A small badge appears on rows that are at or above 90% of their weekly cap so you spot saturated employees before painting another shift.
 - **📈 Compliance trendline**: A sparkline on the Dashboard records daily compliance % per company in localStorage and shows the 30-day delta with an up/down indicator — no server work needed.
@@ -62,11 +65,11 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v1.7.0)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-1.7.0.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v1.8.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-1.8.0.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-1.7.0.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-1.8.0.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -74,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.6.x). This wizard will update Iraqi Labor Scheduler to v1.7.0…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.7.x). This wizard will update Iraqi Labor Scheduler to v1.8.0…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -152,18 +155,21 @@ src/
 │   ├── ConfirmModal.tsx          # With infoOnly variant — replaces native alert()
 │   ├── SchedulePreviewModal.tsx  # AnimatePresence-wrapped (1.7 reliability fix)
 │   ├── ComplianceTrendCard.tsx   # 30-day localStorage-backed sparkline
+│   ├── StaffingAdvisoryCard.tsx  # 3-mode hiring advisory (eliminate-OT / coverage / best-of-both)
 │   ├── PrintScheduleView.tsx     # Hidden static table, revealed by @media print
 │   ├── CompanySwitcher.tsx       # Sidebar multi-company UI
+│   ├── SuggestionPane.tsx        # Right-rail live suggestions + recent-changes log
 │   ├── SimulationDeltaPanel.tsx  # Collapsible bottom panel for sim-mode metrics
-│   ├── CoverageHintToast.tsx     # Bottom-right swap-suggestion toast
+│   ├── CoverageHintToast.tsx     # Bottom-right swap-suggestion toast (non-Schedule tabs)
 │   ├── VariablesTab.tsx          # Ramadan + per-day window + Art. 86 controls (i18n)
 │   ├── AuditLogTab.tsx           # With Clear Log action + confirmation
 │   ├── LocaleSwitcher.tsx        # Locale toggle + theme cycle (Light/Dark/System)
 │   └── Primitives.tsx            # Card, KpiCard, ScheduleCell (mouse events), SettingField
 └── lib/
-    ├── compliance.ts             # ComplianceEngine + previewAssignmentWarnings
-    ├── autoScheduler.ts          # Indexed greedy-fill scheduler with soft preferences
+    ├── compliance.ts             # ComplianceEngine + previewAssignmentWarnings (severity tier)
+    ├── autoScheduler.ts          # Indexed greedy-fill scheduler with soft prefs + PH-debt bias
     ├── coverageHints.ts          # detectCoverageGap + findSwapCandidates
+    ├── staffingAdvisory.ts       # Pure compute for the 3-mode dashboard advisory
     ├── leaves.ts                 # Unified getEmployeeLeaveOnDate (multi+legacy ranges)
     ├── employeeStats.ts          # Per-employee running counters for tooltip + badge
     ├── complianceHistory.ts      # Per-company localStorage-backed daily snapshots
@@ -213,22 +219,18 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
 
-## 📦 What's new in v1.7
+## 📦 What's new in v1.8
 
 | Area | Change |
 |------|--------|
-| **Leave management** | New **multi-range leave manager** in the Credits & Payroll tab. Each employee can have any number of annual / sick / maternity windows with notes. Replaces the single date-range fields that used to live on the Employee modal (which were misleading — employees rarely take exactly one block of leave per type). Legacy data is read transparently via a single `getEmployeeLeaveOnDate` helper, so old saves keep working. |
-| **Schedule grid UX** | **Drag-to-paint** — hold the mouse and drag across cells in paint mode to fill them in one motion. **Shift+click range fill** rectangle-fills from the last clicked cell to the current one (single bundled undo entry). **Per-cell undo (Ctrl+Z)** reverts the most recent paint without losing the rest of the month — separate stack from the existing Auto-Schedule undo. |
-| **Roster bulk action** | Select N employees → **Assign Shift** opens a modal where you pick a shift code and day range and apply in one shot. Toggle "Overwrite existing" to either replace or preserve manual edits. |
-| **At-a-glance compliance** | Hover any employee name in the schedule grid for a tooltip showing hours-vs-cap, peak rolling-7 window, longest streak, and last day worked. A small badge highlights employees at or above 90% of their weekly cap so you spot saturation before painting. |
-| **Compliance trendline** | Dashboard sparkline records daily compliance % per company in localStorage and shows the 30-day delta. Self-bootstrapping — no setup. |
-| **Print** | Schedule tab "Print" button renders the full month as an A3 landscape table with shift colours preserved; no virtualization clipping. |
-| **Dark mode** | Sidebar toggle cycles Light → Dark → System. Tailwind v4 `@variant dark` is wired up with global overrides for the most-used surfaces. |
-| **Daily auto-snapshot** | Electron main process snapshots `data/` once per calendar day on launch, retaining the 7 most recent. Independent from the post-update snapshot. |
-| **RTL pass** | CSS shim mirrors `ml-*`/`mr-*`/`pl-*`/`pr-*`/`border-l/r`/`text-left/right` utilities when `dir="rtl"` so icon+text patterns and tab indicators flip correctly. |
-| **Bug fixes carried from v1.6.4** | Auto-scheduler preview reliably opens (wrapped in `AnimatePresence`); simulation banner is collapsible and lowered below modal z-index; legal Variables tab translates to Arabic; factory reset moved off the front page into Settings; factory reset writes a single audit entry instead of dozens; new Clear Audit Log action with confirmation. |
+| **Live Suggestion Pane** | The bottom-right `CoverageHintToast` is replaced on the Schedule tab with a persistent right rail (`SuggestionPane`). Two sections: live coverage candidates when there's a gap, and a recent-changes log with **one-click undo per entry**. Capped at 50 entries, "show more" beyond the first 10. Collapsible to a thin tab against the right edge with a status dot for active gaps and a count badge for unread changes. The toast still ships and is shown on non-Schedule tabs so cross-tab edits keep surfacing hints. |
+| **3-Mode Staffing Advisory** | Dashboard advisory card now has a tab strip — **Eliminate Overtime / Optimal Coverage / Best of Both**. Each mode shows hires needed, OT saved (IQD/mo), salary added (IQD/mo), and net monthly delta. Footnote explains that re-running the auto-scheduler is needed for the recommendation to update after hires (addresses the "I followed the suggestion but it still says I need more HC" report). |
+| **Public-holiday comp days** | Auto-scheduler tracks per-employee PH comp-day debt and biases the candidate sort to push debtors toward OFF in the days after a holiday — naturally satisfying Art. 74's compensation-day expectation without scheduling extra rest arbitrarily. New `Comp day owed` info-finding fires when no OFF/leave appears within 7 days of a PH-work day. |
+| **Master Schedule UX** | Day-header overhaul: today indicator (blue ring + ●), holiday dot top-left, full holiday name in tooltip, better weekend/holiday contrast. Footer summary bar with total work hours, employees at-cap (≥100% weekly) and near-cap (≥90%), and a count of employees with any leave-day this month. |
+| **Compliance findings — severity tier** | New `severity?: 'violation' \| 'info'` field on the Violation type. Reclassified `Public holiday worked` as `info` (Art. 74 makes it legal — just compensable). Added `Comp day owed` as `info`. App splits the engine output into `violations` (countable, drives the score) and `infoFindings` (notes only). |
+| **Carried from v1.7** | Multi-range leave manager (annual / sick / maternity per employee, multiple windows each); leave additions auto-stamp `AL`/`SL`/`MAT` on the schedule grid; drag-to-paint, Shift+click range fill, per-cell undo (Ctrl+Z); bulk shift assignment from the Roster; per-employee labor-law tooltip with cap badge; compliance trendline sparkline; print view (A3 landscape); dark mode (Light / Dark / System); daily auto-snapshot in Electron; RTL CSS shim. |
 
-For a full version-by-version history including the v1.0–v1.6 lineage, see **[CHANGELOG.md](CHANGELOG.md)**.
+For a full version-by-version history including the v1.0–v1.7 lineage, see **[CHANGELOG.md](CHANGELOG.md)**.
 
 ---
 *Built with React, Electron, react-window, jspdf, motion (framer), date-fns, sharp, png-to-ico, and Tailwind CSS. Tailored for the Iraqi Workforce.*
