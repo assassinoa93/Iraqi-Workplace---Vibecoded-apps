@@ -7,7 +7,7 @@ A professional, local-first workforce management and automated scheduling system
 ## 🌟 Key Features
 
 ### Compliance & legal
-- **⚖️ Compliance engine**: Automated checks for daily/weekly hour caps (Art. 67/70), hazardous-work caps (Art. 68), mandatory rest (Art. 71-72), holiday compensation (Art. 73-74), **transport-worker rules for drivers (Art. 88)**, **sick leave (Art. 84)**, **maternity leave (Art. 87)**, and the **Art. 86 women's night-work rule** for industrial undertakings. Findings are split into two severity tiers — `'violation'` for hard rule breaches that drag the compliance score down, and `'info'` for legitimate operational situations the supervisor needs to be aware of (e.g. holiday worked → eligible for double pay; comp day owed within 7 days). The platform aids compliance through reporting, never enforces by blocking.
+- **⚖️ Compliance engine**: Automated checks for daily/weekly hour caps (Art. 67/70), hazardous-work caps (Art. 68), mandatory rest (Art. 71-72), holiday compensation (Art. 73-74 with the v2.1 either-or model — comp day OR cash premium, configurable per holiday), **transport-worker rules for drivers (Art. 88)**, **sick leave (Art. 84)**, **maternity leave (Art. 87)**, and the **Art. 86 women's night-work rule** for industrial undertakings. Findings are split into two severity tiers — `'violation'` for hard rule breaches that drag the compliance score down, and `'info'` for legitimate operational situations the supervisor needs to be aware of (e.g. holiday worked → eligible for compensation; comp day owed past the configured window). The platform aids compliance through reporting, never enforces by blocking.
 - **📜 Legal Variables tab**: Every cap (daily / weekly / hazardous / driver / OT multipliers / Ramadan reduced-hours / Art. 86 night window) is editable in one place with the governing article tagged on each value. Edits flow live into the engine and the auto-scheduler.
 - **🌙 Ramadan mode**: Set a date range and a reduced daily-hour cap (default 6h). The auto-scheduler refuses to assign longer shifts to non-driver, non-hazardous staff during the window; the engine flags any breach as an `(Ramadan)` violation.
 - **🤰 Maternity leave (Art. 87)**: Mark protected 14-week leave on any female employee. The auto-scheduler stamps `MAT` on those days and skips the employee for assignments. Manual work shifts during the window surface as a violation.
@@ -218,6 +218,21 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v2.1
+
+**Art. 74 either-or model + CP shift + RTL polish + payroll CSV.** The headline change is a legal-model swap: per the practitioner reading the user adopted, holiday work is compensated EITHER with a comp rest day OR a 2× cash premium — not both. v2.1 implements the either-or model with per-holiday flexibility, a configurable comp window, a dedicated `CP` shift code, plus a sweep of RTL fixes and HRIS-ready payroll CSV.
+
+| Area | Change |
+|------|--------|
+| **Art. 74 mode picker** | New global `holidayCompMode` config (`comp-day` default \| `cash-ot`) drives the auto-scheduler + payroll path. `comp-day` rotates a CP rest day inside the configured window so holiday hours stay paid at the regular wage; `cash-ot` skips the rotation and pays 2× per Art. 74. Per-holiday `compMode` override on `PublicHoliday` lets a single peak-week holiday opt out of the rotation. The Holidays tab pill cycles inherit-default → comp-day-override → cash-ot-override. |
+| **Comp window: 7 days recommended, 30 days max** | New `holidayCompWindowDays` (default 30) and `holidayCompRecommendedDays` (default 7) config. Comp days landing past the recommended window but inside the max surface as a soft `Comp day late` info note instead of a hard `Comp day owed` finding. Both configurable in the Variables tab. |
+| **CP — Compensation rest day shift** | New non-work shift code distinct from OFF so the supervisor can see at a glance which non-work days were granted as Art. 74 comp days vs routine weekly rest. The auto-scheduler stamps `CP` (instead of `OFF`) when an employee with a pending PH-work debt rotates to a non-work day. Migration backfills the shift onto every pre-2.1 company on first load. |
+| **Payroll honours the model** | `otAnalysis` splits holiday hours into total + premium-owed pools. A CP / OFF / leave inside the window converts the 2× premium to the 1× regular wage, matching the legal model. Mitigation projection shows the projected cash savings of completing the rotation. |
+| **Payroll CSV (HRIS-ready)** | New per-employee Export CSV on Credits & Payroll: hours, OT pools, balances, salary, hourly rate, net payable — unformatted numerics ready for SAP / Kayan HR import. New header-driven Import CSV updates Holiday Bank, Annual Leave, and Base Salary by `Employee ID`; computed columns are recalculated from the schedule. |
+| **Stations dropdown bug fix** | The "Move to" menu was being clipped by the kanban column's `overflow-hidden` and could escape the viewport on the bottom card. Now rendered via a React portal with viewport-aware drop-up placement, click-outside dismissal, and direction-aware anchoring. |
+| **RTL — SuggestionPane, sticky names, toggle** | Suggestion pane positioned via logical `inset-inline-end` so it lands opposite the sidebar in Arabic instead of overlapping the tabs. Schedule grid locked to `dir="ltr"` so the calendar reads naturally and the sticky names column stays pinned. Apple-pill toggle thumb mirrors via `rtl:` variants. Logical RTL rules added in `index.css` for common right-/left-, text-start/end, and shadow patterns. |
+| **Arabic terminology** | الورديات / الوردية → المناوبات / المناوبة across all 14 occurrences (the user's preferred Iraqi-Arabic word for shifts). |
 
 ## 📦 What's new in v2.0
 

@@ -2,6 +2,45 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v2.1.0 — 2026-04-28
+
+**Art. 74 either-or model + CP shift + RTL polish + payroll CSV.**
+
+The headline change is a legal-model swap on Art. 74. The user surfaced that practitioners disagree with the v1.14 "BOTH 2× cash AND a comp rest day" reading — the prevailing alternative is "EITHER a comp rest day OR the 2× cash premium, not both." v2.1 implements the either-or model with per-holiday flexibility for peak weeks where the comp rotation isn't realistic.
+
+**Art. 74 — comp day OR cash premium (not both)**
+- New `Config.holidayCompMode` (default `'comp-day'` | `'cash-ot'`) drives the auto-scheduler + payroll path globally. `comp-day` rotates a CP rest day inside the configured window so holiday hours stay paid at the regular wage; `cash-ot` skips the rotation and pays 2× per Art. 74.
+- New per-holiday override on `PublicHoliday.compMode` lets the supervisor flip a single holiday to `cash-ot` when peak-week HC can't absorb the rotation. The Holidays tab pill cycles inherit-default → comp-day-override → cash-ot-override.
+- Comp window extended from a hardcoded 7 days to two configurable thresholds: `holidayCompWindowDays` (default 30 — the legal max before "Comp day owed" fires) and `holidayCompRecommendedDays` (default 7 — soft target). Comp rest days landing past the recommendation but inside the max surface as a new `Comp day late` info note rather than a hard "owed" finding.
+- Variables tab gets a new Art. 74 section with the mode picker and both threshold inputs.
+- otAnalysis splits holiday hours into total + premium-owed pools. A CP/OFF day inside the window converts the 2× premium to the 1× regular wage, matching the new legal model. Mitigation projection shows the projected cash savings of completing the rotation.
+
+**New CP shift code (Compensation rest day)**
+- Distinct from OFF so the supervisor can see at a glance which non-work days were granted as Art. 74 comp days vs routine weekly rest. The auto-scheduler stamps `CP` (instead of `OFF`) when an employee with a pending PH-work debt rotates to a non-work day.
+- Migration backfills the `CP` shift onto every pre-2.1 company on first load — no manual intervention.
+- Compliance + payroll both recognise CP as a comp-day marker; OFF still satisfies the comp-day-owed check (a routine OFF inside the window still works as compensation).
+
+**UX bug fixes**
+- **Stations / Assets dropdown:** the "Move to" menu was being clipped by the kanban column's `overflow-hidden` and could escape the viewport on the bottom card of a tall column. Now rendered via a React portal with viewport-aware drop-up placement, click-outside dismissal, and direction-aware anchoring (start side in RTL).
+- **Seeded factory layout:** verified the demo data already lands with three groups (Cashier Counters, Game Machines, Vehicles) wired to matching `eligibleGroups` on the seed employees.
+
+**RTL / Arabic polish**
+- **SuggestionPane** repositioned via logical `inset-inline-end` so it lands opposite the sidebar in Arabic instead of overlapping the tabs. Collapse arrow icon flips with direction; main content shifts via `pe-*` (logical) instead of `pr-*`.
+- **Schedule grid** locked to `dir="ltr"` — calendar days 1→31 read naturally in both locales, the sticky names column stays visually pinned, and `scrollLeft` semantics stay consistent across browsers (RTL `scrollLeft` is an inconsistent mess across Chrome/Edge/Safari/Firefox).
+- **Switch (Apple pill)** thumb travel mirrors via `rtl:` Tailwind variants — ON state lands on the inline-end of the track in Arabic.
+- **Logical RTL rules** added in `index.css` for common `right-*` / `left-*` positioning, `text-start` / `text-end`, and shadow patterns. Tables and buttons use `text-start` / `text-end` everywhere.
+- **Arabic terminology:** الورديات / الوردية → المناوبات / المناوبة across all 14 occurrences (the user's preferred Iraqi-Arabic word for shifts).
+
+**Payroll / Credits CSV (HRIS-ready)**
+- New **Export CSV** button on the Credits & Payroll tab dumps a per-employee row with hours, holiday-bank days, annual-leave days, base salary, hourly rate, standard OT hours/pay, holiday OT hours/pay, and net payable. Numeric fields are unformatted (raw IQD / hours) for clean import into SAP, Kayan HR, or any HRIS system.
+- New **Import CSV** updates `Holiday Bank Days`, `Annual Leave Days`, and `Base Monthly Salary` by `Employee ID`. Other columns (computed payroll values) remain read-only — re-importing them is a no-op since the values are recalculated from the schedule. Skipped row count surfaces in a status banner.
+
+**Tests**
+- 93 passing across compliance, auto-scheduler, OT analysis, coverage hints, staffing advisory, and workforce planning. New tests cover comp-day vs cash-ot mode in both compliance and OT analysis paths.
+
+**Migration**
+- Pre-2.1 backups load cleanly. The `holidayCompMode` field defaults to `'comp-day'` (matches the auto-scheduler's pre-2.1 behaviour); window / recommended day fields default to 30 / 7. Per-holiday `compMode` is `undefined` for legacy holidays (inherits the global default). The CP shift is auto-injected into shift lists that lack it.
+
 ## v2.0.0 — 2026-04-28
 
 **Maturity milestone.** 25 releases since v1.0's MVP — the data model, feature surface, and analytical layer have evolved enough that a major bump is warranted. Conservative-mode workforce planning, station groups, holiday compensation tracking, multi-range leaves, group-level eligibility, and the cross-tab analytics (Compliance / Coverage & OT / Workforce Planning) all post-date v1.0 and form the new baseline. v2.0.0 isn't breaking — pre-2.0 backups load via the migration normalisers — but the app you see in v2.0.0 is fundamentally a different product from v1.0.
