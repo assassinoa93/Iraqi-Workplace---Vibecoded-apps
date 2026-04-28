@@ -263,7 +263,14 @@ export function ScheduleTab({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+      {/* The toolbar stacks vertically by default and only goes single-row at
+          xl+ widths. With the suggestion pane open the main content width is
+          ~1010px on a 1366×768 laptop, which can't fit all 8+ toolbar items
+          on a single row without items overflowing — pre-1.12 the rightmost
+          buttons (Auto-Schedule, Print) ended up underneath the pane. The
+          xl: breakpoint and explicit flex-wrap let the toolbar wrap cleanly
+          inside the padded area. */}
+      <div className="flex flex-col xl:flex-row xl:flex-wrap xl:items-center xl:justify-between gap-4">
         <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
           <button onClick={prevMonth} aria-label={t('schedule.prevMonth')} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
             <ChevronLeft className="w-5 h-5" />

@@ -19,6 +19,7 @@ import {
   Scale,
   FlaskConical,
   TrendingUp,
+  Building2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -71,6 +72,7 @@ import type { DayOfWeek } from './types';
 // the dashboard ships first, the rest are pulled in on demand.
 const DashboardTab = lazy(() => import('./tabs/DashboardTab').then(m => ({ default: m.DashboardTab })));
 const CoverageOTAnalysisTab = lazy(() => import('./tabs/CoverageOTAnalysisTab').then(m => ({ default: m.CoverageOTAnalysisTab })));
+const WorkforcePlanningTab = lazy(() => import('./tabs/WorkforcePlanningTab').then(m => ({ default: m.WorkforcePlanningTab })));
 const RosterTab = lazy(() => import('./tabs/RosterTab').then(m => ({ default: m.RosterTab })));
 const PayrollTab = lazy(() => import('./tabs/PayrollTab').then(m => ({ default: m.PayrollTab })));
 const ScheduleTab = lazy(() => import('./tabs/ScheduleTab').then(m => ({ default: m.ScheduleTab })));
@@ -333,10 +335,53 @@ export default function App() {
   const [scheduleRoleFilter, setScheduleRoleFilter] = useState<string>('all');
   const [paintWarnings, setPaintWarnings] = useState<{ empName: string; warnings: string[] } | null>(null);
   const paintWarningTimerRef = React.useRef<number | null>(null);
-  // Coverage-gap suggestion toast. Populated when a manual paint vacates a
-  // station-bound work shift; the toast lists swap candidates and offers a
-  // one-click rebalance. Non-blocking — the user can always dismiss it.
-  const [coverageHint, setCoverageHint] = useState<{ gap: CoverageGap; suggestions: CoverageSuggestion[] } | null>(null);
+  // Coverage-gap suggestion queue (v1.12). Pre-1.12 we only kept the most
+  // recent gap, which meant that painting absences for two employees in
+  // sequence dropped the first suggestion the moment the second paint fired.
+  // The queue preserves all open gaps; the SuggestionPane shows the head
+  // entry as the "active" suggestion, with a count + drill-down for the
+  // rest. The live-refresh effect prunes entries when a gap is genuinely
+  // closed (reassigned, or another worker filled the slot at peak headcount).
+  type PendingHint = {
+    id: string; // `${vacatedEmpId}:${day}:${stationId}` — uniquely identifies the gap
+    gap: CoverageGap;
+    suggestions: CoverageSuggestion[];
+    ts: number; // creation time, used for mass-change detection + ordering
+  };
+  const [coverageHints, setCoverageHints] = useState<PendingHint[]>([]);
+  const activeCoverageHint = coverageHints[0] || null;
+  const hintIdFor = (gap: CoverageGap) => `${gap.vacatedEmpId}:${gap.day}:${gap.station.id}`;
+  // Queue helpers — keep call sites ergonomic by hiding the dedupe rules
+  // here. `pushHint` drops duplicates (same vacatedEmp + day + station)
+  // because rapid drag-paint can fire the same gap multiple times for the
+  // same cell, and we don't want phantom queue inflation.
+  const pushHint = React.useCallback((gap: CoverageGap, suggestions: CoverageSuggestion[]) => {
+    const id = hintIdFor(gap);
+    setCoverageHints(prev => {
+      if (prev.some(h => h.id === id)) {
+        // Refresh the suggestions list on the existing entry rather than
+        // pushing a duplicate; otherwise rapid sweep-paint over the same
+        // cell would stack the hint over and over.
+        return prev.map(h => h.id === id ? { ...h, suggestions } : h);
+      }
+      return [...prev, { id, gap, suggestions, ts: Date.now() }];
+    });
+  }, []);
+  const dismissHintById = React.useCallback((id: string) => {
+    setCoverageHints(prev => prev.filter(h => h.id !== id));
+  }, []);
+  // Mass-change detection. When ≥3 distinct gaps open within 8 s, surface a
+  // single "bulk operation detected" banner above the active hint that
+  // offers to re-run the auto-scheduler in preserve-absences mode. The
+  // detector reads only from `coverageHints[].ts` so it's automatic — no
+  // extra event tracking required.
+  const MASS_CHANGE_THRESHOLD = 3;
+  const MASS_CHANGE_WINDOW_MS = 8000;
+  const massChangeDetected = useMemo(() => {
+    if (coverageHints.length < MASS_CHANGE_THRESHOLD) return false;
+    const cutoff = Date.now() - MASS_CHANGE_WINDOW_MS;
+    return coverageHints.filter(h => h.ts >= cutoff).length >= MASS_CHANGE_THRESHOLD;
+  }, [coverageHints]);
   // Cells the user just edited via the toast's swap action. Rendered with a
   // pulsing highlight in the schedule grid for ~5 seconds so the user can
   // see exactly which rows moved when the rebalance completes. Stored as
@@ -576,9 +621,9 @@ export default function App() {
       const suggestions = findSwapCandidates(best.gap, {
         employees, shifts, stations, holidays, config, schedule, isPeakDay,
       });
-      setCoverageHint({ gap: best.gap, suggestions });
+      pushHint(best.gap, suggestions);
     }
-  }, [employees, shifts, stations, holidays, config, schedule, isPeakDay]);
+  }, [employees, shifts, stations, holidays, config, schedule, isPeakDay, pushHint]);
 
   const handleSaveEmployee = (emp: Employee) => {
     if (editingEmployee) {
@@ -1323,9 +1368,9 @@ export default function App() {
       const suggestions = findSwapCandidates(gap, {
         employees, shifts, stations, holidays, config, schedule, isPeakDay,
       });
-      setCoverageHint({ gap, suggestions });
+      pushHint(gap, suggestions);
     },
-    [employees, shifts, stations, holidays, config, schedule, isPeakDay],
+    [employees, shifts, stations, holidays, config, schedule, isPeakDay, pushHint],
   );
 
   // Per-cell undo stack — each entry captures the prior contents of a single
@@ -1452,8 +1497,8 @@ export default function App() {
   // Both the original cell (the one that opened the gap) and the chosen
   // candidate's cell flash briefly so the user sees what moved.
   const acceptCoverageSwap = (replacementEmpId: string) => {
-    if (!coverageHint) return;
-    const { gap } = coverageHint;
+    if (!activeCoverageHint) return;
+    const { gap, id: hintId } = activeCoverageHint;
     const prevReplacementEntry = schedule[replacementEmpId]?.[gap.day];
     setSchedule(prev => ({
       ...prev,
@@ -1475,7 +1520,8 @@ export default function App() {
       nextCode: gap.vacatedShiftCode,
       source: 'swap',
     });
-    setCoverageHint(null);
+    // Remove just the head of the queue so the next pending gap surfaces.
+    dismissHintById(hintId);
   };
 
   // Live-refresh the open coverage-hint as the schedule evolves. The user
@@ -1503,35 +1549,35 @@ export default function App() {
   // the most recent gap, but the previous one is treated as "still open"
   // until acted on — matching the supervisor's mental model.
   useEffect(() => {
-    if (!coverageHint) return;
-    const { gap } = coverageHint;
-
-    // Did the originally-vacated employee come back to the station as a work
-    // shift? (Typical: user pressed Ctrl+Z right after the paint that opened
-    // the gap, or re-painted the same cell back to the original shift.) In
-    // that case the hint is talking about a gap that no longer exists, so
-    // we silently retire it.
-    const currentVacatedEntry = schedule[gap.vacatedEmpId]?.[gap.day];
-    const reassigned =
-      currentVacatedEntry?.stationId === gap.station.id &&
-      !!shifts.find(s => s.code === currentVacatedEntry.shiftCode)?.isWork;
-    if (reassigned) {
-      setCoverageHint(null);
-      return;
-    }
-
-    // Refresh suggestions, but only commit when the candidate empIds actually
-    // change. Comparing on empId order keeps us out of infinite useEffect
-    // loops while still picking up roster availability changes.
-    const fresh = findSwapCandidates(gap, {
-      employees, shifts, stations, holidays, config, schedule, isPeakDay,
+    if (coverageHints.length === 0) return;
+    setCoverageHints(prev => {
+      let mutated = false;
+      const next: PendingHint[] = [];
+      for (const h of prev) {
+        // Drop hints whose vacated cell came back to the station as a work
+        // shift (typical Ctrl+Z scenario). The gap is genuinely closed.
+        const currentVacatedEntry = schedule[h.gap.vacatedEmpId]?.[h.gap.day];
+        const reassigned =
+          currentVacatedEntry?.stationId === h.gap.station.id &&
+          !!shifts.find(s => s.code === currentVacatedEntry.shiftCode)?.isWork;
+        if (reassigned) { mutated = true; continue; }
+        // Refresh suggestions; only commit when empId order changed so we
+        // don't spin in a useEffect loop.
+        const fresh = findSwapCandidates(h.gap, {
+          employees, shifts, stations, holidays, config, schedule, isPeakDay,
+        });
+        const prevKey = h.suggestions.map(s => s.empId).join('|');
+        const nextKey = fresh.map(s => s.empId).join('|');
+        if (prevKey !== nextKey) {
+          mutated = true;
+          next.push({ ...h, suggestions: fresh });
+        } else {
+          next.push(h);
+        }
+      }
+      return mutated ? next : prev;
     });
-    const prevKey = coverageHint.suggestions.map(s => s.empId).join('|');
-    const nextKey = fresh.map(s => s.empId).join('|');
-    if (prevKey !== nextKey) {
-      setCoverageHint({ gap, suggestions: fresh });
-    }
-  }, [schedule, employees, shifts, stations, holidays, config, isPeakDay, coverageHint]);
+  }, [schedule, employees, shifts, stations, holidays, config, isPeakDay, coverageHints.length]);
 
   // Multi-company actions ---
   const switchCompany = (id: string) => {
@@ -1723,16 +1769,17 @@ export default function App() {
         <nav className="flex-1 py-4 overflow-y-auto">
           <TabButton active={activeTab === 'dashboard'} label={t('tab.dashboard')} index="01" icon={BarChart3} onClick={() => setActiveTab('dashboard')} />
           <TabButton active={activeTab === 'coverageOT'} label={t('tab.coverageOT')} index="02" icon={TrendingUp} onClick={() => setActiveTab('coverageOT')} />
-          <TabButton active={activeTab === 'roster'} label={t('tab.roster')} index="03" icon={Users} onClick={() => setActiveTab('roster')} />
-          <TabButton active={activeTab === 'shifts'} label={t('tab.shifts')} index="04" icon={Clock} onClick={() => setActiveTab('shifts')} />
-          <TabButton active={activeTab === 'payroll'} label={t('tab.payroll')} index="05" icon={BarChart3} onClick={() => setActiveTab('payroll')} />
-          <TabButton active={activeTab === 'holidays'} label={t('tab.holidays')} index="06" icon={Flag} onClick={() => setActiveTab('holidays')} />
-          <TabButton active={activeTab === 'layout'} label={t('tab.layout')} index="07" icon={Layout} onClick={() => setActiveTab('layout')} />
-          <TabButton active={activeTab === 'schedule'} label={t('tab.schedule')} index="08" icon={Calendar} onClick={() => setActiveTab('schedule')} />
-          <TabButton active={activeTab === 'reports'} label={t('tab.reports')} index="09" icon={FileSpreadsheet} onClick={() => setActiveTab('reports')} />
-          <TabButton active={activeTab === 'variables'} label={t('tab.variables')} index="10" icon={Scale} onClick={() => setActiveTab('variables')} />
-          <TabButton active={activeTab === 'audit'} label={t('tab.audit')} index="11" icon={Database} onClick={() => setActiveTab('audit')} />
-          <TabButton active={activeTab === 'settings'} label={t('tab.settings')} index="12" icon={Settings} onClick={() => setActiveTab('settings')} />
+          <TabButton active={activeTab === 'workforce'} label={t('tab.workforce')} index="03" icon={Building2} onClick={() => setActiveTab('workforce')} />
+          <TabButton active={activeTab === 'roster'} label={t('tab.roster')} index="04" icon={Users} onClick={() => setActiveTab('roster')} />
+          <TabButton active={activeTab === 'shifts'} label={t('tab.shifts')} index="05" icon={Clock} onClick={() => setActiveTab('shifts')} />
+          <TabButton active={activeTab === 'payroll'} label={t('tab.payroll')} index="06" icon={BarChart3} onClick={() => setActiveTab('payroll')} />
+          <TabButton active={activeTab === 'holidays'} label={t('tab.holidays')} index="07" icon={Flag} onClick={() => setActiveTab('holidays')} />
+          <TabButton active={activeTab === 'layout'} label={t('tab.layout')} index="08" icon={Layout} onClick={() => setActiveTab('layout')} />
+          <TabButton active={activeTab === 'schedule'} label={t('tab.schedule')} index="09" icon={Calendar} onClick={() => setActiveTab('schedule')} />
+          <TabButton active={activeTab === 'reports'} label={t('tab.reports')} index="10" icon={FileSpreadsheet} onClick={() => setActiveTab('reports')} />
+          <TabButton active={activeTab === 'variables'} label={t('tab.variables')} index="11" icon={Scale} onClick={() => setActiveTab('variables')} />
+          <TabButton active={activeTab === 'audit'} label={t('tab.audit')} index="12" icon={Database} onClick={() => setActiveTab('audit')} />
+          <TabButton active={activeTab === 'settings'} label={t('tab.settings')} index="13" icon={Settings} onClick={() => setActiveTab('settings')} />
         </nav>
 
         <div className="p-4 border-t border-slate-700 bg-[#0F172A]/50 space-y-2">
@@ -1871,6 +1918,22 @@ export default function App() {
                 onUpdateEmployee={(next) => {
                   setEmployees(arr => arr.map(e => e.empId === next.empId ? next : e));
                 }}
+              />
+            )}
+
+            {activeTab === 'workforce' && (
+              <WorkforcePlanningTab
+                employees={employees}
+                shifts={shifts}
+                stations={stations}
+                holidays={holidays}
+                config={config}
+                schedule={schedule}
+                isPeakDay={isPeakDay}
+                prevMonth={prevMonth}
+                nextMonth={nextMonth}
+                onGoToRoster={() => setActiveTab('roster')}
+                onGoToLayout={() => setActiveTab('layout')}
               />
             )}
 
@@ -2098,9 +2161,19 @@ export default function App() {
           isn't visible. */}
       {activeTab === 'schedule' ? (
         <SuggestionPane
-          hint={coverageHint}
-          onDismissHint={() => setCoverageHint(null)}
+          hint={activeCoverageHint ? { gap: activeCoverageHint.gap, suggestions: activeCoverageHint.suggestions } : null}
+          pendingCount={Math.max(0, coverageHints.length - 1)}
+          massChangeDetected={massChangeDetected}
+          onDismissHint={() => activeCoverageHint && dismissHintById(activeCoverageHint.id)}
           onPickReplacement={acceptCoverageSwap}
+          onRunOptimal={() => {
+            // Mass-change CTA: re-run the auto-scheduler in preserve-existing
+            // mode so the absences the user just painted stay locked while
+            // the algorithm re-fills the rest. Clears the pending-hint queue
+            // since they're about to be re-evaluated.
+            setCoverageHints([]);
+            handleRunAutoScheduler('preserve');
+          }}
           recentChanges={recentChanges}
           onUndoChange={undoRecentChange}
           onClearChanges={() => setRecentChanges([])}
@@ -2112,8 +2185,8 @@ export default function App() {
         />
       ) : (
         <CoverageHintToast
-          hint={coverageHint}
-          onDismiss={() => setCoverageHint(null)}
+          hint={activeCoverageHint ? { gap: activeCoverageHint.gap, suggestions: activeCoverageHint.suggestions } : null}
+          onDismiss={() => activeCoverageHint && dismissHintById(activeCoverageHint.id)}
           onPickReplacement={acceptCoverageSwap}
         />
       )}

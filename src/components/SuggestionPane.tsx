@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Lightbulb, X, ArrowRight, MoonStar, AlertTriangle, Star, ChevronRight,
-  History, Undo2, Sparkles, ChevronLeft as ChevronLeftIcon,
+  History, Undo2, Sparkles, ChevronLeft as ChevronLeftIcon, Zap,
 } from 'lucide-react';
 import { CoverageGap, CoverageSuggestion } from '../lib/coverageHints';
 import { cn } from '../lib/utils';
@@ -26,8 +26,19 @@ interface Props {
   // Current coverage gap, if any. Null means no gap is active and the
   // suggestion section shows a "no gaps" pleasant state.
   hint: { gap: CoverageGap; suggestions: CoverageSuggestion[] } | null;
+  // Number of additional gaps queued behind the active one (v1.12). Pre-1.12
+  // each new paint replaced the previous hint, so the supervisor lost
+  // suggestions before they could act on them. Now older gaps stay queued
+  // and surface in the pane footer with a count.
+  pendingCount: number;
+  // True when ≥3 distinct gaps have opened within an 8-second window. The
+  // pane shows a "bulk operation detected" banner offering to re-run the
+  // auto-scheduler in preserve-absences mode — the right answer when the
+  // user is stamping leaves on multiple employees at once.
+  massChangeDetected: boolean;
   onDismissHint: () => void;
   onPickReplacement: (empId: string) => void;
+  onRunOptimal: () => void;
   // Recent-changes log, most recent first. Each item is undoable independently.
   recentChanges: RecentChange[];
   onUndoChange: (id: string) => void;
@@ -46,7 +57,8 @@ interface Props {
 // ScheduleTab applies right-margin so the grid doesn't slide under it.
 // Collapses to a thin 36px-wide tab the user clicks to expand.
 export function SuggestionPane({
-  hint, onDismissHint, onPickReplacement,
+  hint, pendingCount, massChangeDetected,
+  onDismissHint, onPickReplacement, onRunOptimal,
   recentChanges, onUndoChange, onClearChanges,
   collapsed, onToggleCollapsed,
 }: Props) {
@@ -103,10 +115,39 @@ export function SuggestionPane({
 
       {/* Suggestions section */}
       <div className="flex-1 overflow-y-auto">
+        {/* Mass-change banner — surfaces above the active hint when ≥3 gaps
+            opened in <8s. Offers the only sensible answer at that scale: re-
+            run the auto-scheduler in preserve-absences mode so it routes
+            substitutes around the absences in one shot. */}
+        {massChangeDetected && (
+          <section className="p-4 border-b border-indigo-200 bg-indigo-50/70">
+            <div className="flex items-start gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-200">
+                <Zap className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-black text-indigo-900 uppercase tracking-widest">{t('pane.massChange.title')}</p>
+                <p className="text-[10px] text-indigo-700 leading-relaxed mt-1">{t('pane.massChange.body')}</p>
+                <button
+                  onClick={onRunOptimal}
+                  className="mt-2 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
+                >
+                  {t('pane.massChange.cta')}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
         <section className="p-4 border-b border-slate-100">
           <div className="flex items-center gap-2 mb-3">
             <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
             <h4 className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{t('pane.suggestions.header')}</h4>
+            {pendingCount > 0 && (
+              <span className="text-[9px] font-black text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded">
+                +{pendingCount} {t('pane.pending.label')}
+              </span>
+            )}
             {hint && (
               <button
                 onClick={onDismissHint}
@@ -131,6 +172,11 @@ export function SuggestionPane({
                   {t('hint.coverage.title', { day: hint.gap.day, station: hint.gap.station.name })}
                 </p>
                 <p className="text-[10px] text-slate-600 mt-0.5">{t('hint.coverage.body')}</p>
+                {pendingCount > 0 && (
+                  <p className="text-[10px] text-amber-700 font-medium mt-1">
+                    {t('pane.pending.hint', { count: pendingCount })}
+                  </p>
+                )}
               </div>
 
               {hint.suggestions.length === 0 ? (

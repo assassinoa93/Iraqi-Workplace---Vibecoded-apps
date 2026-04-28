@@ -21,6 +21,7 @@ export const en: Dict = {
   // Tabs
   'tab.dashboard': 'Compliance Dashboard',
   'tab.coverageOT': 'Coverage & OT Analysis',
+  'tab.workforce': 'Workforce Planning',
   'tab.roster': 'Employee Roster',
   'tab.shifts': 'Shift Setup',
   'tab.payroll': 'Credits & Payroll',
@@ -660,6 +661,13 @@ export const en: Dict = {
   'pane.changes.showAll': 'Show {extra} more',
   'pane.changes.showLess': 'Show fewer',
 
+  // v1.12 — pending-queue + mass-change detection
+  'pane.pending.label': 'queued',
+  'pane.pending.hint': '{count} more pending — they\'ll surface when this one is dismissed or accepted.',
+  'pane.massChange.title': 'Bulk operation detected',
+  'pane.massChange.body': 'Multiple absences/leave days were just placed. Picking substitutes one by one is slow at this scale — re-run the auto-scheduler in preserve-absences mode and it will route coverage around all of them in a single pass.',
+  'pane.massChange.cta': 'Run Optimal (Keep Absences)',
+
   // Holiday compensation modal (v1.11) — toggle per worked holiday whether
   // to pay 2× cash premium or grant a comp day off in lieu.
   'holidayComp.title': 'Holiday Compensation Choices',
@@ -725,8 +733,8 @@ export const en: Dict = {
   'otAnalysis.mitigations.hire.body': 'Each new FTE relieves up to one monthly cap of over-cap pressure. Salary added is approximately {cost} IQD/mo at the roster average. See the Compliance Dashboard for per-station breakdown + simulation.',
   'otAnalysis.mitigations.hire.cta': 'See advisory',
   'otAnalysis.mitigations.compDay.title': 'Grant {count} comp day(s) for holiday work',
-  'otAnalysis.mitigations.compDay.body': 'Iraqi Labor Law (Art. 74) lets you swap the 2× holiday premium for a regular paid day plus a rest day off within 7 days. The compliance engine flags any holiday-work day that doesn\'t get a comp within the window — go to Roster → Credits & Payroll to mark them.',
-  'otAnalysis.mitigations.compDay.cta': 'Open payroll',
+  'otAnalysis.mitigations.compDay.body': 'Iraqi Labor Law (Art. 74) lets you replace the 2× holiday premium with a paid day off within 7 days. Pick which holidays to compensate per employee — pay drops from 2× to 1× regular wage for those dates (already covered by base salary). The supervisor must ensure an OFF day appears in the schedule within 7 days; the compliance engine will flag any that don\'t.',
+  'otAnalysis.mitigations.compDay.cta': 'Choose comps',
   'otAnalysis.mitigations.rebalance.title': 'Re-run the auto-scheduler in strict mode',
   'otAnalysis.mitigations.rebalance.body': 'Sometimes a manually-edited schedule has skewed someone\'s weekly load. Strict-mode auto-scheduling re-distributes hours subject to all caps, so the over-cap pool can shrink without any new hires.',
   'otAnalysis.mitigations.rebalance.cta': 'Open schedule',
@@ -734,6 +742,47 @@ export const en: Dict = {
   // Action helpers used by the tab header
   'action.prevMonth': 'Previous month',
   'action.nextMonth': 'Next month',
+
+  // Workforce Planning tab (v1.12)
+  'workforce.eyebrow': 'Ideal roster · FTE/PT mix · cost delta',
+  'workforce.empty.title': 'Define stations first',
+  'workforce.empty.body': 'Workforce Planning needs at least one station with operating hours and minimum-headcount settings to compute demand.',
+  'workforce.empty.cta': 'Open Stations',
+  'workforce.noDemand.title': 'No demand detected this month',
+  'workforce.noDemand.body': 'Every station\'s peak and normal headcount is set to zero, so there\'s nothing to staff. Adjust station headcount in the Stations / Assets tab to see workforce recommendations.',
+  'workforce.kpi.idealFTE': 'Ideal FTE',
+  'workforce.kpi.idealFTESub': 'all-FTE math',
+  'workforce.kpi.recommendedFTE': 'FTE (recommended)',
+  'workforce.kpi.recommendedFTESub': 'baseline coverage',
+  'workforce.kpi.partTime': 'Part-time',
+  'workforce.kpi.partTimeSub': 'peak surge',
+  'workforce.kpi.payrollDelta': 'Monthly payroll delta',
+  'workforce.method.title': 'How the recommendation works',
+  'workforce.method.body': 'Each station contributes monthly demand-hours = open-window × required headcount × applicable days. Demand is split into peak (peakDays + holidays) and non-peak. When peak demand is materially higher than non-peak, FTEs cover the non-peak baseline and part-timers fill the surge — cheaper than scaling FTE for peak. Driver caps follow Art. 88 (224h/mo); everyone else uses Art. 67/70 (192h/mo).',
+  // Per-role labels
+  'workforce.role.required': 'required',
+  'workforce.role.cap': '/ FTE cap',
+  'workforce.role.current': 'Current',
+  'workforce.role.recommendedFTE': 'Rec. FTE',
+  'workforce.role.recommendedPT': 'Rec. PT',
+  'workforce.role.delta': 'Delta',
+  'workforce.role.hireBy': 'Hire +{count} to match demand.',
+  'workforce.role.releaseBy': 'Excess of {count} — consolidate.',
+  'workforce.role.matchesNeed': 'Roster matches demand.',
+  'workforce.role.demandSplit': 'Peak vs non-peak demand',
+  'workforce.role.peakLift': 'peak = {pct}% of non-peak',
+  'workforce.role.peak': 'peak',
+  'workforce.role.nonPeak': 'non-peak',
+  'workforce.role.stationsHeader': 'Demand by station',
+  'workforce.role.monthlyHours': 'mo demand',
+  // Action labels
+  'workforce.action.hire': 'Hire',
+  'workforce.action.release': 'Release',
+  'workforce.action.hold': 'Hold',
+  // Footer CTA
+  'workforce.cta.title': 'Apply the recommendation',
+  'workforce.cta.body': 'Open the roster to add or release employees per role. The dashboard advisory and OT analysis tabs will reflect the new headcount automatically once you re-run the auto-scheduler.',
+  'workforce.cta.button': 'Open Roster',
 
   // Theme toggle
   'theme.light': 'Light',
@@ -770,6 +819,7 @@ export const ar: Dict = {
   // Tabs
   'tab.dashboard': 'لوحة الامتثال',
   'tab.coverageOT': 'تحليل التغطية والإضافي',
+  'tab.workforce': 'تخطيط القوى العاملة',
   'tab.roster': 'سجل الموظفين',
   'tab.shifts': 'إعداد الورديات',
   'tab.payroll': 'الأرصدة والأجور',
@@ -1411,6 +1461,13 @@ export const ar: Dict = {
   'pane.changes.showAll': 'عرض {extra} إضافية',
   'pane.changes.showLess': 'عرض أقل',
 
+  // v1.12 — قائمة الانتظار + كشف العمليات الجماعية
+  'pane.pending.label': 'في الانتظار',
+  'pane.pending.hint': '{count} اقتراح آخر معلّق — ستظهر بعد رفض أو قبول هذا.',
+  'pane.massChange.title': 'تم رصد عملية جماعية',
+  'pane.massChange.body': 'تم تسجيل غيابات متعددة. اختيار البدلاء واحدًا واحدًا بطيء — أعد تشغيل المُجدوِل التلقائي بوضع الحفاظ على الغيابات وسيوجّه التغطية حولها في مرة واحدة.',
+  'pane.massChange.cta': 'تشغيل المثالي (الحفاظ على الغيابات)',
+
   // Holiday compensation modal
   'holidayComp.title': 'خيارات تعويض العطل',
   'holidayComp.body': 'يسمح قانون العمل العراقي (المادة 74) بتعويض عمل العطل الرسمية بإحدى طريقتين: علاوة نقدية 2× أو منح يوم راحة مدفوع خلال 7 أيام. منح يوم تعويضي يُخفّض الأجر من 2× إلى 1× (مغطى بالراتب الأساسي)، مما يوفّر العلاوة.',
@@ -1474,14 +1531,52 @@ export const ar: Dict = {
   'otAnalysis.mitigations.hire.body': 'كل موظف جديد يخفّف عن الموجودين ما يصل إلى حد شهري كامل من ساعات تجاوز الحد. الراتب المضاف ≈ {cost} د.ع/شهر بمتوسط الرواتب. انظر لوحة الامتثال للتفصيل والمحاكاة.',
   'otAnalysis.mitigations.hire.cta': 'اطلع على التوصية',
   'otAnalysis.mitigations.compDay.title': 'امنح {count} يومًا تعويضيًا لعمل العطل',
-  'otAnalysis.mitigations.compDay.body': 'يسمح القانون (المادة 74) باستبدال علاوة 2× بأجر عادي ويوم راحة خلال 7 أيام. يُنبّه محرك الامتثال إلى أي يوم عطلة عُمل ولم يحصل على تعويض في الإطار الزمني — انتقل إلى السجل ← الرواتب لتعليمها.',
-  'otAnalysis.mitigations.compDay.cta': 'افتح الرواتب',
+  'otAnalysis.mitigations.compDay.body': 'يسمح القانون (المادة 74) باستبدال علاوة 2× بيوم راحة مدفوع خلال 7 أيام. اختر العطل المراد تعويضها لكل موظف — سيُدفع 1× عادي بدلًا من 2× (مغطى بالراتب الأساسي). يجب التأكد من ظهور يوم راحة خلال 7 أيام؛ سينبّه محرك الامتثال إلى أي حالة لا تلتزم.',
+  'otAnalysis.mitigations.compDay.cta': 'اختيار التعويضات',
   'otAnalysis.mitigations.rebalance.title': 'أعد تشغيل المُجدوِل التلقائي بالوضع الصارم',
   'otAnalysis.mitigations.rebalance.body': 'أحيانًا يُحدث التحرير اليدوي اختلالًا في عبء أحدهم الأسبوعي. الجدولة الصارمة تُعيد التوزيع ضمن جميع الحدود، فيمكن أن تتقلص ساعات تجاوز الحد دون توظيف جديد.',
   'otAnalysis.mitigations.rebalance.cta': 'افتح الجدول',
 
   'action.prevMonth': 'الشهر السابق',
   'action.nextMonth': 'الشهر التالي',
+
+  // Workforce Planning (v1.12)
+  'workforce.eyebrow': 'القائمة المثلى · تركيبة دائم/جزئي · فرق التكلفة',
+  'workforce.empty.title': 'حدّد المحطات أولاً',
+  'workforce.empty.body': 'يتطلّب تخطيط القوى العاملة محطة واحدة على الأقل بساعات تشغيل وحد أدنى للموظفين لحساب الطلب.',
+  'workforce.empty.cta': 'فتح المحطات',
+  'workforce.noDemand.title': 'لم يُرصد طلب هذا الشهر',
+  'workforce.noDemand.body': 'كل المحطات لديها حد أدنى من الموظفين صفرًا في الذروة وغير الذروة، لا يوجد ما يجب تغطيته. عدّل الحد الأدنى في تبويب المحطات لرؤية توصيات القوى العاملة.',
+  'workforce.kpi.idealFTE': 'الموظفون الدائمون المثاليون',
+  'workforce.kpi.idealFTESub': 'حساب دائم بالكامل',
+  'workforce.kpi.recommendedFTE': 'دائم (موصى به)',
+  'workforce.kpi.recommendedFTESub': 'تغطية أساسية',
+  'workforce.kpi.partTime': 'بدوام جزئي',
+  'workforce.kpi.partTimeSub': 'لذروة الطلب',
+  'workforce.kpi.payrollDelta': 'فرق الرواتب الشهرية',
+  'workforce.method.title': 'كيف تعمل التوصية',
+  'workforce.method.body': 'كل محطة تُسهم بساعات الطلب الشهرية = نافذة العمل × الحد الأدنى × الأيام السارية. يُقسّم الطلب إلى ذروة (أيام الذروة + العطل) وغير الذروة. عندما يكون طلب الذروة أعلى ملحوظًا من غير الذروة، يغطّي الموظفون الدائمون القاعدة ويسد بدوام جزئي الفائض — أرخص من توسيع العدد الدائم للذروة. السائقون يخضعون للمادة 88 (224 ساعة/شهر)؛ الباقون للمادتين 67/70 (192 ساعة/شهر).',
+  'workforce.role.required': 'مطلوبة',
+  'workforce.role.cap': '/ الحد الدائم',
+  'workforce.role.current': 'الحالي',
+  'workforce.role.recommendedFTE': 'دائم موصى',
+  'workforce.role.recommendedPT': 'جزئي موصى',
+  'workforce.role.delta': 'الفرق',
+  'workforce.role.hireBy': 'وظِّف +{count} لتغطية الطلب.',
+  'workforce.role.releaseBy': 'فائض {count} — أعد التوزيع.',
+  'workforce.role.matchesNeed': 'القائمة مطابقة للطلب.',
+  'workforce.role.demandSplit': 'الذروة مقابل غير الذروة',
+  'workforce.role.peakLift': 'الذروة = {pct}% من غير الذروة',
+  'workforce.role.peak': 'ذروة',
+  'workforce.role.nonPeak': 'غير ذروة',
+  'workforce.role.stationsHeader': 'الطلب حسب المحطة',
+  'workforce.role.monthlyHours': 'طلب شهري',
+  'workforce.action.hire': 'توظيف',
+  'workforce.action.release': 'تخفيض',
+  'workforce.action.hold': 'إبقاء',
+  'workforce.cta.title': 'طبّق التوصية',
+  'workforce.cta.body': 'افتح السجل لإضافة أو تخفيض الموظفين حسب الدور. ستعكس لوحة التوصيات وتحليل الإضافي العدد الجديد تلقائيًا بعد إعادة تشغيل المُجدوِل التلقائي.',
+  'workforce.cta.button': 'فتح السجل',
 
   // Theme
   'theme.light': 'فاتح',

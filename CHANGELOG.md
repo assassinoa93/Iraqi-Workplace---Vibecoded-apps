@@ -2,6 +2,42 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v1.12.0 — 2026-04-28
+
+UX polish + Workforce Planning tab. Three reported UX issues from v1.11 plus a substantial new tab that answers "what does my ideal roster look like?".
+
+**Schedule toolbar layout (UX #1)**
+- Pre-1.12 the master-schedule toolbar used `flex flex-col lg:flex-row` so it switched to a single row at lg+ widths. With the suggestion pane open the main content is ~1010px on a 1366×768 laptop — tighter than `lg:` assumes — so the rightmost buttons (Auto-Schedule, Print) ended up obscured by the pane. v1.12 raises the breakpoint to `xl:` and adds explicit `flex-wrap` so the toolbar wraps cleanly inside the padded area regardless of pane state.
+
+**Suggestion-pane queue + mass-change detection (UX #2)**
+- Pre-1.12 each new gap REPLACED the prior coverage hint, so painting absences for two employees in sequence dropped the first suggestion the moment the second paint fired. v1.12 maintains a queue of pending hints — the pane shows the head as the "active" suggestion plus a `+N queued` badge, and dismissing/picking advances to the next.
+- New "Bulk operation detected" banner: when ≥3 distinct gaps open within an 8-second window the pane surfaces a one-click CTA to re-run the auto-scheduler in preserve-absences mode. That's the right answer at scale — picking substitutes one by one is slow when the supervisor is stamping leaves on a whole crew.
+- Auto-dismiss policy unchanged from v1.10.1: hints only disappear when the originally-vacated employee comes back to the station (Ctrl+Z scenario). All other paths leave the queue intact.
+
+**OT analysis CTA clarity (UX #3)**
+- The comp-day mitigation row's CTA was labeled "Open payroll" which was unclear about what it would do. Renamed to "Choose comps" with a more explicit body explaining that the modal lets you pick which holidays to compensate per employee and that pay drops from 2× to 1× regular wage for those dates.
+
+**New: Workforce Planning tab (sidebar position #3)**
+- Sidebar order: Compliance Dashboard (01), Coverage & OT Analysis (02), Workforce Planning (03), then the operational tabs. New `Building2` icon to differentiate from Roster's `Users`.
+- Math lives in `src/lib/workforcePlanning.ts` (pure function, 11 unit tests). Per role:
+  - Sums monthly demand-hours = open-window × required headcount × applicable days (peakMinHC on peak days/holidays, normalMinHC otherwise).
+  - Splits demand into peak vs non-peak. When peak demand exceeds 1.25× non-peak, the recommendation switches to an FTE+PT mix (FTEs for the baseline, part-timers at 96h/mo for the surge — cheaper than scaling FTE for peak). Otherwise stays all-FTE.
+  - Drivers use Art. 88 caps (224h/mo); everyone else uses Art. 67/70 (192h/mo).
+- Per-role card shows: current count vs recommended FTE vs recommended PT, payroll delta, peak/non-peak demand visual, plus a per-station breakdown of where the demand comes from.
+- Top-level KPI strip: Ideal FTE (all-FTE math), Recommended FTE, Part-time, Monthly payroll delta vs current.
+- "Method" panel explains the recommendation logic so the supervisor can sanity-check it.
+- Empty / no-demand states with shortcuts to Stations / Roster.
+
+**Tests**
+- New `workforcePlanning.test.ts` (11 tests): empty/zero-demand, flat demand → all-FTE, peak-only → all-PT, peak-lift → mixed, driver caps separated, payroll delta sign.
+- 80 tests total, all passing.
+
+**Architecture**
+- `src/lib/workforcePlanning.ts` — pure analyzer.
+- `src/tabs/WorkforcePlanningTab.tsx` — code-split, lazy-loaded.
+- App.tsx wires the new pane queue (`coverageHints: PendingHint[]` instead of single hint) + mass-change detector.
+- SuggestionPane gains `pendingCount` + `massChangeDetected` + `onRunOptimal` props.
+
 ## v1.11.0 — 2026-04-28
 
 Holiday-comp-day workflow. Iraqi Labor Law (Art. 74) lets the supervisor compensate public-holiday work either with the 2× cash premium or by granting a paid day off in lieu within 7 days. Pre-v1.11 the app paid the cash premium regardless and tracked `holidayBank` as an opaque counter — there was no way to actually realise the legal alternative and save the venue the premium. v1.11 adds the explicit per-employee, per-holiday choice, and propagates it through every cost surface.
