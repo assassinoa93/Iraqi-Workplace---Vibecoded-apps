@@ -26,8 +26,9 @@ export function ConfirmModal({ isOpen, onClose, onConfirm, title, message, extra
   const cancelRef = useModalKeys(isOpen, onClose) as React.RefObject<HTMLButtonElement>;
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
+    <div onClick={onClose} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={title}>
       <motion.div
+        onClick={e => e.stopPropagation()}
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         className="bg-white w-full max-w-sm rounded-xl shadow-2xl border border-slate-200 overflow-hidden"

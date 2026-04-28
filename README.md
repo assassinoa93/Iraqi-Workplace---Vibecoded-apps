@@ -65,11 +65,11 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v2.1.1)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-2.1.1.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v2.1.2)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-2.1.2.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.1.1.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.1.2.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -77,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.1.1…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.1.2…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -218,6 +218,25 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v2.1.2
+
+UX & bug-hunt batch: 12 high-impact fixes across modals, validation, and cross-tab consistency.
+
+| Area | Change |
+|------|--------|
+| **NaN-poisoning numeric inputs** | Six `parseInt`/`parseFloat` sites in EmployeeModal, StationModal, ShiftModal accepted an empty input as `NaN` and persisted it, breaking downstream payroll math. All wrapped with `\|\| 0` and clamped non-negative. |
+| **Dashboard `isPeakDay`** | Local copy ignored holidays so the staffing advisory disagreed with every other tab on holiday-heavy months. Now plumbed from App.tsx as a single source of truth. |
+| **AnimatePresence dynamic keys** | CoverageHintToast / LeaveManagerModal / BulkAssignModal each had the documented constant-key pitfall under StrictMode (exit animation can hang). All fixed. |
+| **HolidayModal polish** | i18n'd labels, validates date format, default reference fixed from "Article 73" to "Art. 74", and exposes the per-holiday compMode picker at create time. |
+| **Holidays tab edit affordance** | New pencil icon opens the modal pre-populated — pre-2.1.2 the only path was delete + recreate. |
+| **RosterTab eligible-stations chips** | Now unions `eligibleStations` + `eligibleGroups` so a group-only employee no longer renders as "Unassigned". |
+| **StationModal role dropdown** | Populates from the live roster (was hardcoded Driver only). Empty ID/name now block save with inline errors. |
+| **Shift deletion guards** | Protected shifts (CP/OFF/AL/SL/MAT/PH) can't be deleted; in-use shifts trigger a confirmation showing affected cell count. |
+| **Modals close on backdrop click** | Seven modals (Confirm, Employee, Station, Holiday, Shift, BulkAssign, LeaveManager) now dismiss on outside-click. |
+| **Sim baseline coverage** | Removed the fake "+N%" metric that hardcoded `baseline: 0`. The remaining four sim metrics are honestly comparable. |
+| **Schedule paint banner** | Stops pulsing after 1.8s instead of forever. |
+| **Dashboard heatmap title** | Shows the effective per-DOW hour range with "varies by day" suffix when overrides extend it. |
 
 ## 📦 What's new in v2.1
 

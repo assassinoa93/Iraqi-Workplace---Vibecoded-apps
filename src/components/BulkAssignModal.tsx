@@ -46,20 +46,29 @@ export function BulkAssignModal({ isOpen, onClose, selectedCount, shifts, daysIn
 
   const totalCells = selectedCount * (Math.abs(toDay - fromDay) + 1);
 
+  // v2.1.2 — dynamic key keyed on selection count + range so the
+  // AnimatePresence exit animation doesn't hang under StrictMode. Same
+  // pitfall flagged in feedback_react_animatepresence.md.
+  const presenceKey = `bulk-assign:${selectedCount}:${fromDay}:${toDay}`;
+
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
+          key={`${presenceKey}:bg`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
+          onClick={onClose}
           className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-label={t('bulkAssign.title')}
         >
           <motion.div
+            key={`${presenceKey}:card`}
+            onClick={e => e.stopPropagation()}
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}

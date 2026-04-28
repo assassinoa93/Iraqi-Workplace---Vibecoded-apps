@@ -10,6 +10,11 @@ interface StationModalProps {
   onClose: () => void;
   onSave: (s: Station) => void;
   station: Station | null;
+  // v2.1.2: roles to choose from for "required role" dropdown. Pulled
+  // from the live roster so any role on a real employee (Cashier,
+  // Operator, Security, etc.) can be required at station level — not
+  // just the hardcoded "Driver" the modal shipped with.
+  availableRoles?: string[];
 }
 
 const empty = (): Station => ({
@@ -17,20 +22,36 @@ const empty = (): Station => ({
   openingTime: '08:00', closingTime: '23:00', color: '#3B82F6'
 });
 
-export function StationModal({ isOpen, onClose, onSave, station }: StationModalProps) {
+export function StationModal({ isOpen, onClose, onSave, station, availableRoles = [] }: StationModalProps) {
   const { t } = useI18n();
   const closeButtonRef = useModalKeys(isOpen, onClose) as React.RefObject<HTMLButtonElement>;
   const [formData, setFormData] = useState<Station>(empty());
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setFormData(station ?? empty());
+    setError(null);
   }, [station, isOpen]);
 
   if (!isOpen) return null;
 
+  const handleSave = () => {
+    const trimmedId = formData.id.trim();
+    const trimmedName = formData.name.trim();
+    if (!trimmedId) { setError(t('modal.station.error.id')); return; }
+    if (!trimmedName) { setError(t('modal.station.error.name')); return; }
+    onSave({ ...formData, id: trimmedId, name: trimmedName });
+    onClose();
+  };
+
+  // De-duplicate + sort roles. Always include 'Driver' so the seeded
+  // requiredRoles=['Driver'] convention keeps working even if no driver
+  // employee is on the roster yet.
+  const roleOptions = Array.from(new Set([...availableRoles, 'Driver'])).filter(Boolean).sort();
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label={t('modal.station.title')}>
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+    <div onClick={onClose} className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label={t('modal.station.title')}>
+      <motion.div onClick={e => e.stopPropagation()} initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
           <h3 className="font-black text-slate-800 uppercase tracking-tighter">{t('modal.station.title')}</h3>
           <button ref={closeButtonRef} onClick={onClose} aria-label={t('action.cancel')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors"><X className="w-5 h-5 text-slate-400" /></button>
@@ -46,11 +67,11 @@ export function StationModal({ isOpen, onClose, onSave, station }: StationModalP
           <div className="grid grid-cols-2 gap-4">
              <div>
                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">{t('modal.station.field.normalHC')}</label>
-               <input type="number" value={formData.normalMinHC} onChange={e => setFormData({...formData, normalMinHC: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
+               <input type="number" min={0} value={formData.normalMinHC} onChange={e => setFormData({...formData, normalMinHC: Math.max(0, parseInt(e.target.value) || 0)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
              </div>
              <div>
                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">{t('modal.station.field.peakHC')}</label>
-               <input type="number" value={formData.peakMinHC} onChange={e => setFormData({...formData, peakMinHC: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
+               <input type="number" min={0} value={formData.peakMinHC} onChange={e => setFormData({...formData, peakMinHC: Math.max(0, parseInt(e.target.value) || 0)})} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-mono" />
              </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -74,9 +95,16 @@ export function StationModal({ isOpen, onClose, onSave, station }: StationModalP
               className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-sm font-medium"
             >
               <option value="">{t('modal.station.role.any')}</option>
-              <option value="Driver">{t('modal.station.role.driver')}</option>
+              {roleOptions.map(r => (
+                <option key={r} value={r}>{r === 'Driver' ? t('modal.station.role.driver') : r}</option>
+              ))}
             </select>
           </div>
+          {error && (
+            <div className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
           <div>
             <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 block">{t('modal.station.field.color')}</label>
             <input type="color" value={formData.color} onChange={e => setFormData({...formData, color: e.target.value})} className="w-full h-9 p-1 bg-slate-50 border border-slate-200 rounded-lg" />
@@ -84,7 +112,7 @@ export function StationModal({ isOpen, onClose, onSave, station }: StationModalP
         </div>
         <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
           <button onClick={onClose} className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 py-2 hover:text-slate-600 transition-colors">{t('action.cancel')}</button>
-          <button onClick={() => { onSave(formData); onClose(); }} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all">{t('modal.station.save')}</button>
+          <button onClick={handleSave} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all">{t('modal.station.save')}</button>
         </div>
       </motion.div>
     </div>

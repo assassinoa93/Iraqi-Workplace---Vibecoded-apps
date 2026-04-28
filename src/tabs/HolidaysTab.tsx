@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Plus, Trash2 } from 'lucide-react';
+import { Calendar, Plus, Trash2, Edit3 } from 'lucide-react';
 import { format } from 'date-fns';
 import { PublicHoliday, HolidayCompMode, Config } from '../types';
 import { Card } from '../components/Primitives';
@@ -10,11 +10,12 @@ interface HolidaysTabProps {
   holidays: PublicHoliday[];
   config: Config;
   onAddNew: () => void;
+  onEdit: (holi: PublicHoliday) => void;
   onDelete: (holi: PublicHoliday) => void;
   onUpdate: (holi: PublicHoliday) => void;
 }
 
-export function HolidaysTab({ holidays, config, onAddNew, onDelete, onUpdate }: HolidaysTabProps) {
+export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUpdate }: HolidaysTabProps) {
   const { t } = useI18n();
   const defaultMode = config.holidayCompMode ?? 'comp-day';
 
@@ -86,13 +87,24 @@ export function HolidaysTab({ holidays, config, onAddNew, onDelete, onUpdate }: 
                 <span className={cn("text-[9px] font-black uppercase tracking-widest", holi.isFixed ? "text-blue-500" : "text-slate-400")}>
                   {holi.isFixed ? t('holidays.fixed') : t('holidays.movable')}
                 </span>
-                <button
-                  onClick={() => onDelete(holi)}
-                  aria-label={`${t('action.delete')}: ${holi.name}`}
-                  className="text-slate-300 hover:text-red-500 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => onEdit(holi)}
+                    aria-label={`${t('action.edit')}: ${holi.name}`}
+                    title={t('action.edit')}
+                    className="text-slate-300 hover:text-blue-500 transition-colors p-1"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => onDelete(holi)}
+                    aria-label={`${t('action.delete')}: ${holi.name}`}
+                    title={t('action.delete')}
+                    className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </Card>
           );

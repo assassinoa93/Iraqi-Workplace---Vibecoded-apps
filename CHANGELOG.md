@@ -2,6 +2,35 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v2.1.2 — 2026-04-28
+
+**UX & bug-hunt batch.** A wide audit surfaced ~25 issues; this release ships fixes for the highest-impact 12. All low-risk, all things a supervisor would feel within minutes of using the app.
+
+**Real bugs**
+- **NaN-poisoning numeric inputs.** Six `parseInt(value)` / `parseFloat(value)` call sites in EmployeeModal, StationModal, and ShiftModal accepted an empty input as `NaN` and persisted it — the next render would then read `NaN` salary, hourly rate, headcount, etc., quietly breaking payroll. All sites now wrap with `|| 0` and clamp non-negative where appropriate.
+- **DashboardTab `isPeakDay` was holiday-blind.** A local copy on the dashboard only checked `config.peakDays`, while the canonical App.tsx version also counts every public holiday as peak. The 3-mode staffing advisory ran with the holiday-blind predicate, silently disagreeing with every other tab on holiday-heavy months. Now plumbed from App.tsx as a prop — single source of truth.
+- **AnimatePresence + constant-key pitfall in three modals.** CoverageHintToast, LeaveManagerModal, and BulkAssignModal each used a single child under `<AnimatePresence>` with no per-instance `key` — the documented React StrictMode foot-gun where the exit animation can hang and leave the component invisible on the next mount. All three now use dynamic keys.
+- **HolidayModal hard-coded English labels and `'Article 73'` reference.** The legal reference disagrees with the rest of the codebase (Art. 74 governs holiday work). Now i18n'd, defaults to `'Art. 74'`, validates the date format, and exposes the per-holiday `compMode` picker at create time so peak-week opt-outs don't require save-then-edit.
+- **RosterTab "Stations" column ignored `eligibleGroups`.** A v1.16 employee assigned only via group eligibility (e.g. `eligibleGroups: ['cashier-grp']`) showed as "Unassigned" even though the auto-scheduler considered them eligible for every station in the group. Now renders group chips first, then deduplicates per-station chips that fall under those groups.
+- **StationModal "Required Role" hardcoded to Driver only.** Custom roles ("Cashier", "Operator", "Security") on the roster could not be required at station level via the UI. Dropdown now populates from the live roster + Driver. Empty ID/name now block save with an inline error instead of silently creating duplicates.
+- **Shift deletion left dangling references.** Deleting CP / OFF / AL / SL / MAT / PH silently broke the auto-scheduler, comp-day rotation, or leave system; deleting any in-use shift left stale codes in schedule cells. Now: system shifts are protected with a clear "can't delete" notice; in-use shifts trigger a confirmation showing the affected cell count.
+- **Sim panel reported a fake +N% coverage gain on every run.** The "Coverage" metric hardcoded `baseline: 0` because the baseline coverage wasn't recomputed during sim. Removed the metric entirely until baseline computation is wired; the remaining four (workforce / OT hours / OT pay / violations) are honestly comparable.
+- **Dashboard heatmap title misrepresented effective hours.** When per-day-of-week overrides extended the operating window (e.g. Friday to 02:00), the heatmap correctly plotted the union but the title showed only the default open/close. Now shows the effective range with a "varies by day" suffix when overrides exist.
+
+**UX wins**
+- **Modals close on backdrop click.** Six modals (Confirm, Employee, Station, Holiday, Shift, BulkAssign, LeaveManager) now dismiss when the user clicks the dimmed area outside the card. Esc still works via `useModalKeys`. The standard "click-outside" gesture was the most surprising omission in usability testing.
+- **Schedule paint banner stops pulsing after 1.8s.** Pre-2.1.2 the blue "Painting FS" banner pulsed indefinitely, reading as visual noise after the first second. The pulse now triggers only when paint mode changes and settles to a static label.
+- **Holidays tab cards have an edit pencil.** Pre-2.1.2 the only path to fix a typo'd date or holiday name was delete + recreate — losing any per-holiday `compMode` override. Now an edit icon opens the modal pre-populated.
+- **EmployeeModal initial focus lands on the form, not the close button.** Pre-2.1.2 hitting Enter immediately after "New Employee" dismissed the modal. Now defers focus to the first text input.
+- **CSV payroll import guards `≥ 0` on Holiday Bank and Annual Leave.** Pre-2.1.2 only `baseMonthlySalary` had the guard; negative balances surfaced as "credit deficits" downstream.
+- **KpiCard cleanup.** Removed an always-empty `<span>` that took a column gap on every dashboard card. Status labels ("Requires Review" / "System Balanced") and units ("Staff", "Stations") now route through i18n.
+
+**Architecture / cleanup**
+- **Stale comment block in PayrollTab.** The commented-out HolidayCompensationModal block from v1.10 still claimed Art. 74 entitled workers to "BOTH the 2× cash premium AND a comp rest day" — directly contradicting v2.1's either-or model. Removed.
+
+**Tests**
+- 102 passing across compliance, auto-scheduler, OT analysis, holidayCompPay, coverage hints, staffing advisory, and workforce planning. No new tests this batch — every fix is either trivially correct (NaN guards, prop plumbing, dynamic keys) or covered by manual UX verification (modals, focus, banner timing).
+
 ## v2.1.1 — 2026-04-28
 
 **Hotfix — Art. 74 either-or model now applies to the on-screen Payroll table and Dashboard KPIs.**

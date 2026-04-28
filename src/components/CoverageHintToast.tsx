@@ -24,13 +24,19 @@ export function CoverageHintToast({ hint, onDismiss, onPickReplacement }: Props)
   return (
     <AnimatePresence>
       {hint && (
+        // v2.1.2 — dynamic key keyed on the active gap so successive
+        // gaps re-mount cleanly under StrictMode (a constant key here
+        // can leave the exit animation hanging, which kept the toast
+        // invisible on the second open). Inline-end positioning so the
+        // toast lands opposite the sidebar in RTL too.
         <motion.div
-          key="coverage-hint"
+          key={`coverage-hint:${hint.gap.station.id}:${hint.gap.day}`}
           initial={{ opacity: 0, x: 40, y: 0 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 40 }}
           transition={{ type: 'spring', stiffness: 280, damping: 26 }}
-          className="fixed bottom-6 right-6 z-[90] w-[320px] bg-white border border-amber-200 rounded-xl shadow-2xl shadow-amber-500/10 overflow-hidden"
+          style={{ insetInlineEnd: 24 }}
+          className="fixed bottom-6 z-[90] w-[320px] bg-white border border-amber-200 rounded-xl shadow-2xl shadow-amber-500/10 overflow-hidden"
           role="status"
           aria-live="polite"
         >

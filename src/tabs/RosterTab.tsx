@@ -1,12 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Trash2, Plus, Users, Edit3, ChevronUp, ChevronDown, CalendarRange } from 'lucide-react';
-import { Employee, Station } from '../types';
+import { Employee, Station, StationGroup } from '../types';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
 
 interface RosterTabProps {
   employees: Employee[];
   stations: Station[];
+  // v2.1.2: station groups for rendering eligibleGroups chips. A
+  // group-eligible employee with empty `eligibleStations` previously
+  // rendered as "Unassigned" even though the auto-scheduler considered
+  // them eligible for every station in the group.
+  stationGroups?: StationGroup[];
   searchTerm: string;
   setSearchTerm: (s: string) => void;
   selectedEmployees: Set<string>;
@@ -47,7 +52,7 @@ function SortableHeader({
 }
 
 export function RosterTab({
-  employees, stations, searchTerm, setSearchTerm,
+  employees, stations, stationGroups = [], searchTerm, setSearchTerm,
   selectedEmployees, toggleEmployeeSelection, setSelectedEmployees,
   onAddNew, onEdit, onDelete, onBulkDelete, onLoadSample, onBulkAssignShift,
 }: RosterTabProps) {
@@ -230,15 +235,40 @@ export function RosterTab({
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-wrap gap-1">
+                    {/* Group chips first — they cover N stations in one
+                        token, so showing them up front explains a
+                        "Cashier Group" employee at a glance instead of
+                        listing every cashier station. Stations that
+                        only fall under the group are not duplicated as
+                        per-station chips. */}
+                    {(emp.eligibleGroups || []).map(gid => {
+                      const grp = stationGroups.find(g => g.id === gid);
+                      if (!grp) return null;
+                      return (
+                        <span
+                          key={gid}
+                          className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase border"
+                          style={{ backgroundColor: `${grp.color || '#94a3b8'}20`, borderColor: `${grp.color || '#94a3b8'}55`, color: grp.color || '#475569' }}
+                          title={grp.description || grp.name}
+                        >
+                          {grp.name}
+                        </span>
+                      );
+                    })}
                     {emp.eligibleStations?.map(sid => {
                       const st = stations.find(s => s.id === sid);
+                      // Skip stations already covered by a group chip
+                      // above to avoid visual duplication.
+                      if (st?.groupId && (emp.eligibleGroups || []).includes(st.groupId)) return null;
                       return (
                         <span key={sid} className="px-1.5 py-0.5 rounded-full bg-slate-100 text-[8px] font-bold text-slate-500 uppercase border border-slate-200">
                           {st?.name || sid}
                         </span>
                       );
                     })}
-                    {(!emp.eligibleStations || emp.eligibleStations.length === 0) && <span className="text-[8px] text-slate-300 uppercase font-black tracking-widest">{t('roster.unassigned')}</span>}
+                    {(!emp.eligibleStations || emp.eligibleStations.length === 0) && (!emp.eligibleGroups || emp.eligibleGroups.length === 0) && (
+                      <span className="text-[8px] text-slate-300 uppercase font-black tracking-widest">{t('roster.unassigned')}</span>
+                    )}
                   </div>
                 </td>
                 <td className="px-6 py-4 text-end">

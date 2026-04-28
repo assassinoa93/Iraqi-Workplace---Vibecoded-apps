@@ -441,6 +441,10 @@ export default function App() {
     message: string;
     onConfirm: () => void;
     extraAction?: { label: string; onClick: () => void; icon?: any };
+    // v2.1.2: render as a single-button informational dialog when set —
+    // matches the existing ConfirmModal `infoOnly` prop. Used for "you
+    // can't delete this shift" notices.
+    infoOnly?: boolean;
   }>({
     isOpen: false,
     title: '',
@@ -702,7 +706,47 @@ export default function App() {
     });
   };
 
+  // System-required shift codes the auto-scheduler / payroll / migration
+  // depend on. Deleting CP silently breaks the v2.1 comp-day rotation;
+  // deleting OFF / AL / SL / MAT / PH breaks the after-day pass and the
+  // leave system. The migration would re-add them on next load anyway,
+  // but the in-flight schedule between delete and reload would have
+  // dangling shift codes — so block instead of letting the user slip
+  // into an inconsistent state.
+  const SYSTEM_SHIFT_CODES = new Set(['OFF', 'AL', 'SL', 'MAT', 'PH', 'CP']);
+
   const handleDeleteShift = (code: string) => {
+    if (SYSTEM_SHIFT_CODES.has(code)) {
+      setConfirmState({
+        isOpen: true,
+        title: t('confirm.deleteShift.protectedTitle'),
+        message: t('confirm.deleteShift.protectedBody', { code }),
+        onConfirm: () => {},
+        infoOnly: true,
+      });
+      return;
+    }
+    // Count usage across every persisted schedule so we can warn the
+    // user before turning live cells into stale shift-code references.
+    let usageCount = 0;
+    for (const monthSched of Object.values(allSchedules || {})) {
+      for (const empSched of Object.values(monthSched)) {
+        for (const entry of Object.values(empSched)) {
+          if (entry?.shiftCode === code) usageCount++;
+        }
+      }
+    }
+    if (usageCount > 0) {
+      setConfirmState({
+        isOpen: true,
+        title: t('confirm.deleteShift.inUseTitle'),
+        message: t('confirm.deleteShift.inUseBody', { code, count: usageCount }),
+        onConfirm: () => {
+          setShifts(prev => prev.filter(s => s.code !== code));
+        },
+      });
+      return;
+    }
     setConfirmState({
       isOpen: true,
       title: t('confirm.deleteShift.title'),
@@ -1176,8 +1220,14 @@ export default function App() {
   };
 
   const handleSaveHoliday = (holi: PublicHoliday) => {
+    // Identify the existing entry by the *original* date when editing —
+    // lets the user correct a date by editing without leaving a phantom
+    // entry behind. New holidays match on the new date (no original).
+    const editingDate = editingHoliday?.date;
     setHolidays(prev => {
-      const idx = prev.findIndex(h => h.date === holi.date);
+      const idx = editingDate
+        ? prev.findIndex(h => h.date === editingDate)
+        : prev.findIndex(h => h.date === holi.date);
       if (idx >= 0) {
         const next = [...prev];
         next[idx] = holi;
@@ -1186,6 +1236,7 @@ export default function App() {
       return [...prev, holi];
     });
     setIsHolidayModalOpen(false);
+    setEditingHoliday(null);
   };
 
   // Hourly coverage analysis. Honors per-day-of-week opening/closing
@@ -1749,16 +1800,20 @@ export default function App() {
       .reduce((s, v) => s + (v.count || 1), 0);
 
     const fmtIQD = (n: number) => `${Math.round(n).toLocaleString()}`;
+    // v2.1.2 — coverage metric removed from the sim panel. Pre-2.1.2 it
+    // hardcoded `baseline: 0` and reported a fake +N% gain on every sim
+    // run regardless of actual change. Computing the baseline correctly
+    // would require a parallel hourlyCoverage pass over the baseline
+    // schedule, which is expensive enough to defer. Until then the four
+    // metrics below (workforce / OT hours / OT pay / violations) are
+    // honestly comparable.
     return [
       { label: t('sim.metric.workforce'), baseline: baselineActive.employees.length, sim: employees.length, higherIsBetter: true },
-      { label: t('sim.metric.coverage'), baseline: 0, sim: overallCoveragePercent, higherIsBetter: true, formatter: (n: number) => `${n}%` },
       { label: t('sim.metric.otHours'), baseline: Math.round(baseOTHrs), sim: Math.round(otSummary.totalOTHours), higherIsBetter: false, formatter: (n: number) => `${n}h` },
       { label: t('sim.metric.otPay'), baseline: Math.round(baseOTPay), sim: Math.round(otSummary.totalOTPay), higherIsBetter: false, formatter: fmtIQD },
       { label: t('sim.metric.violations'), baseline: baseViolations, sim: violations.reduce((s, v) => s + (v.count || 1), 0), higherIsBetter: false },
     ];
-    // Coverage on baseline isn't recomputed here — it would need its own
-    // hourlyCoverage pass. We surface live coverage delta only (baseline shown as 0 for rendering).
-  }, [simMode, simBaseline, employees.length, overallCoveragePercent, otSummary, violations, t]);
+  }, [simMode, simBaseline, employees.length, otSummary, violations, t]);
 
   return (
     <>
@@ -1933,6 +1988,7 @@ export default function App() {
                 schedule={schedule}
                 allSchedules={allSchedules}
                 stations={stations}
+                isPeakDay={isPeakDay}
                 violations={violations}
                 staffingGapsByStation={staffingGapsByStation}
                 hourlyCoverage={hourlyCoverage}
@@ -2014,6 +2070,7 @@ export default function App() {
               <RosterTab
                 employees={employees}
                 stations={stations}
+                stationGroups={stationGroups}
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
                 selectedEmployees={selectedEmployees}
@@ -2091,7 +2148,8 @@ export default function App() {
               <HolidaysTab
                 holidays={holidays}
                 config={config}
-                onAddNew={() => setIsHolidayModalOpen(true)}
+                onAddNew={() => { setEditingHoliday(null); setIsHolidayModalOpen(true); }}
+                onEdit={(holi) => { setEditingHoliday(holi); setIsHolidayModalOpen(true); }}
                 onDelete={(holi) => setConfirmState({
                   isOpen: true,
                   title: t('confirm.eraseHoliday.title'),
@@ -2150,13 +2208,15 @@ export default function App() {
         onClose={() => setIsStationModalOpen(false)}
         onSave={handleSaveStation}
         station={selectedStation}
+        availableRoles={rosterRoles}
       />
 
       <HolidayModal
         isOpen={isHolidayModalOpen}
-        onClose={() => setIsHolidayModalOpen(false)}
+        onClose={() => { setIsHolidayModalOpen(false); setEditingHoliday(null); }}
         onSave={handleSaveHoliday}
         holiday={editingHoliday}
+        defaultCompMode={config.holidayCompMode ?? 'comp-day'}
       />
 
       <ShiftModal
@@ -2173,6 +2233,7 @@ export default function App() {
         message={confirmState.message}
         onConfirm={confirmState.onConfirm}
         extraAction={confirmState.extraAction}
+        infoOnly={confirmState.infoOnly}
         onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
       />
 

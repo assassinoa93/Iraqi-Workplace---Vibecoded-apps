@@ -55,8 +55,9 @@ export function ShiftModal({ isOpen, onClose, onSave, shift, config }: ShiftModa
   const isOutside = (shiftStart < shopStart) || (shiftEnd > shopEnd && shiftEnd !== 0) || (shiftEnd === 0 && shopEnd < 23);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={shift ? t('modal.shift.title.edit') : t('modal.shift.title.new')}>
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={shift ? t('modal.shift.title.edit') : t('modal.shift.title.new')}>
       <motion.div
+        onClick={e => e.stopPropagation()}
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         className="bg-white w-full max-w-lg rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
@@ -76,8 +77,8 @@ export function ShiftModal({ isOpen, onClose, onSave, shift, config }: ShiftModa
             <SettingField label="Display Name" value={formData.name} onChange={v => setFormData({...formData, name: v})} />
             <SettingField label="Start Time" type="time" value={formData.start} onChange={v => setFormData({...formData, start: v})} />
             <SettingField label="End Time" type="time" value={formData.end} onChange={v => setFormData({...formData, end: v})} />
-            <SettingField label="Work Hours (Auto)" type="number" value={formData.durationHrs} onChange={v => setFormData({...formData, durationHrs: parseFloat(v)})} />
-            <SettingField label="Break (Min)" type="number" value={formData.breakMin} onChange={v => setFormData({...formData, breakMin: parseInt(v)})} />
+            <SettingField label="Work Hours (Auto)" type="number" value={formData.durationHrs} onChange={v => setFormData({...formData, durationHrs: Math.max(0, parseFloat(v) || 0)})} />
+            <SettingField label="Break (Min)" type="number" value={formData.breakMin} onChange={v => setFormData({...formData, breakMin: Math.max(0, parseInt(v) || 0)})} />
           </div>
 
           {isOutside && formData.isWork && (

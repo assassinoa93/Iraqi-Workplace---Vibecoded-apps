@@ -1,6 +1,7 @@
 import React from 'react';
 import { cn } from '../lib/utils';
 import { getShiftColor } from '../lib/colors';
+import { useI18n } from '../lib/i18n';
 
 export const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
   <div className={cn("bg-white rounded border border-slate-200 shadow-sm overflow-hidden", className)}>
@@ -34,7 +35,14 @@ export const TabButton = ({ active, label, index, onClick }: { active: boolean; 
   </button>
 );
 
-export function KpiCard({ label, value, trend }: { label: string; value: any; trend?: string }) {
+// KpiCard renders a single dashboard metric. `unit` decorates the value
+// (the legacy "Staff" hardcoded label is now optional and i18n'd at the
+// caller). `trend` flips the card into status mode — when 'Critical'
+// the value/dot/label render red; any other truthy string renders the
+// OK tone. v2.1.2 dropped the always-empty inner span artifact and
+// routed status labels through i18n.
+export function KpiCard({ label, value, trend, unit }: { label: string; value: any; trend?: string; unit?: string }) {
+  const { t } = useI18n();
   return (
     <Card className="p-5 border-slate-200 shadow-sm group bg-white">
       <p className="text-[11px] text-slate-400 uppercase tracking-widest font-bold mb-2">{label}</p>
@@ -45,13 +53,15 @@ export function KpiCard({ label, value, trend }: { label: string; value: any; tr
         )}>
           {value}
         </span>
-        <span className="text-[10px] text-slate-400 font-bold uppercase">{trend ? "" : "Staff"}</span>
+        {!trend && unit && (
+          <span className="text-[10px] text-slate-400 font-bold uppercase">{unit}</span>
+        )}
       </div>
       {trend && (
         <div className="mt-4 flex items-center gap-1.5">
           <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", trend === 'Critical' ? "bg-red-500" : "bg-emerald-500")} />
           <span className={cn("text-[10px] font-bold uppercase tracking-tight", trend === 'Critical' ? "text-red-500" : "text-emerald-500")}>
-            {trend === 'Critical' ? "Requires Review" : "System Balanced"}
+            {trend === 'Critical' ? t('kpi.status.review') : t('kpi.status.balanced')}
           </span>
         </div>
       )}

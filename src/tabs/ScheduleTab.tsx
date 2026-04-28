@@ -156,6 +156,19 @@ export function ScheduleTab({
   // here (not in App.tsx) to keep mouse-event noise local to the grid.
   const [isDragPainting, setIsDragPainting] = useState(false);
   const lastClickedCellRef = useRef<{ empId: string; day: number } | null>(null);
+  // v2.1.2 — paint banner pulses briefly when entering paint mode, then
+  // settles to a static label. Pre-2.1.2 it pulsed forever, which read
+  // as visual noise after the user understood they were in paint mode.
+  const [paintBannerPulse, setPaintBannerPulse] = useState(false);
+  useEffect(() => {
+    if (paintMode) {
+      setPaintBannerPulse(true);
+      const t = window.setTimeout(() => setPaintBannerPulse(false), 1800);
+      return () => window.clearTimeout(t);
+    } else {
+      setPaintBannerPulse(false);
+    }
+  }, [paintMode?.shiftCode]);
 
   // Refs for the sticky top scrollbar mirror (v1.13) and the manual
   // sticky-left translate fix for the names column (v1.15). Two separate
@@ -515,7 +528,10 @@ export function ScheduleTab({
       )}
       <div dir="ltr" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {paintMode && (
-          <div className="bg-blue-600 text-white px-4 py-1 text-[9px] font-bold uppercase tracking-widest text-center shadow-lg border-b border-blue-700 animate-pulse">
+          <div className={cn(
+            "bg-blue-600 text-white px-4 py-1 text-[9px] font-bold uppercase tracking-widest text-center shadow-lg border-b border-blue-700",
+            paintBannerPulse && "animate-pulse",
+          )}>
             {t('schedule.paintBanner', { code: paintMode.shiftCode })}
           </div>
         )}

@@ -46,6 +46,12 @@ interface DashboardTabProps {
   // trend card persists per-company snapshots in localStorage so switching
   // company resets the chart to that company's history.
   activeCompanyId: string;
+  // v2.1.2: shared peak-day predicate from App.tsx. Pre-2.1.2 the
+  // dashboard used a local copy that only checked `config.peakDays`,
+  // missing the "holidays count as peak" rule that the canonical
+  // App.tsx version applies. The advisory math then disagreed with
+  // every other tab on holiday-heavy months.
+  isPeakDay: (day: number) => boolean;
 }
 
 export function DashboardTab(props: DashboardTabProps) {
@@ -55,7 +61,7 @@ export function DashboardTab(props: DashboardTabProps) {
     peakStabilityPercent, overallCoveragePercent,
     isStatsModalOpen, setIsStatsModalOpen,
     prevMonth, nextMonth, onGoToRoster, onLoadSample,
-    activeCompanyId,
+    activeCompanyId, isPeakDay,
   } = props;
   const { t } = useI18n();
   const closeStatsButtonRef = useModalKeys(isStatsModalOpen, () => setIsStatsModalOpen(false)) as React.RefObject<HTMLButtonElement>;
@@ -114,9 +120,10 @@ export function DashboardTab(props: DashboardTabProps) {
   // the dashboard's existing peak-hour shortfall computation — the advisory
   // module slices it by mode (OT-driven, gap-driven, or both) and returns a
   // per-station breakdown so each recommended hire is tied to a station and
-  // a reason. Wrap isPeakDay locally so the simulation re-uses the same
-  // peak-day predicate.
-  const isPeakDay = (d: number) => (config.peakDays || []).includes(((new Date(config.year, config.month - 1, d).getDay()) + 1));
+  // a reason. The peak-day predicate is the shared one from App.tsx
+  // (passed via props) so holidays count as peak — pre-2.1.2 a local
+  // copy here only checked `config.peakDays` and the advisory disagreed
+  // with the auto-scheduler on holiday-heavy months.
   const stationGaps = staffingGapsByStation.map(g => ({
     stationId: g.stationId, stationName: g.stationName, gap: g.gap,
   }));
@@ -430,9 +437,9 @@ export function DashboardTab(props: DashboardTabProps) {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard label={t('dashboard.kpi.workforce')} value={employees.length} />
+        <KpiCard label={t('dashboard.kpi.workforce')} value={employees.length} unit={t('kpi.unit.staff')} />
         <KpiCard label={t('dashboard.kpi.violations')} value={totalViolationInstances} trend={violations.length > 0 ? 'Critical' : 'Perfect'} />
-        <KpiCard label={t('dashboard.kpi.stations')} value={stations.length} />
+        <KpiCard label={t('dashboard.kpi.stations')} value={stations.length} unit={t('kpi.unit.stations')} />
         <KpiCard label={t('dashboard.kpi.compliance')} value={compliancePct} trend="Health" />
         <KpiCard
           label={t('dashboard.kpi.fteForecast')}
@@ -484,7 +491,23 @@ export function DashboardTab(props: DashboardTabProps) {
 
         <Card className="p-8">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">{t('dashboard.coverageTitle')} ({config.shopOpeningTime} - {config.shopClosingTime})</h3>
+            {/* v2.1.2 — show the effective range (union of per-DOW
+                overrides) when overrides exist, since the heatmap
+                actually plots that union. Pre-2.1.2 the title only
+                showed the default open/close so a Friday extension to
+                02:00 was silently mismatched. */}
+            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">
+              {(() => {
+                const hours = hourlyCoverage.hours;
+                if (!hours || hours.length === 0) return `${t('dashboard.coverageTitle')} (${config.shopOpeningTime} - ${config.shopClosingTime})`;
+                const open = `${String(hours[0]).padStart(2, '0')}:00`;
+                const closeRaw = (hours[hours.length - 1] + 1) % 24;
+                const close = `${String(closeRaw).padStart(2, '0')}:00`;
+                const overrides = config.operatingHoursByDayOfWeek;
+                const hasOverrides = overrides && Object.keys(overrides).length > 0;
+                return `${t('dashboard.coverageTitle')} (${open} - ${close}${hasOverrides ? ` · ${t('dashboard.coverage.varies')}` : ''})`;
+              })()}
+            </h3>
             <div className="flex gap-2">
               <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-400 uppercase">
                 <div className="w-2 h-2 rounded-full bg-red-100 border border-red-200" /> {t('dashboard.coverage.low')}

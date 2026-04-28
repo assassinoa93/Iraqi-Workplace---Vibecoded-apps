@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import { X, Plus } from 'lucide-react';
 import { format } from 'date-fns';
@@ -52,13 +52,26 @@ const empty = (config: Pick<Config, 'standardWeeklyHrsCap'>): Employee => {
 
 export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shifts, config }: EmployeeModalProps) {
   const { t } = useI18n();
-  const closeButtonRef = useModalKeys(isOpen, onClose) as React.RefObject<HTMLButtonElement>;
+  // useModalKeys handles Escape; initial focus is wired to the first
+  // input below (not the close button) so pressing Enter after open
+  // doesn't dismiss the modal. The hook still returns a ref but we
+  // park it on a no-op element since `cardRef` drives initial focus.
+  useModalKeys(isOpen, onClose);
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const [formData, setFormData] = useState<Employee>(() => empty(config));
 
   useEffect(() => {
     if (isOpen) {
       // Backfill `category` for v1.1 records that don't carry it.
       setFormData(employee ? { category: 'Standard', ...employee } : empty(config));
+      // Defer focus past the mount tick so it lands on the first form
+      // input rather than racing with the document focus.
+      const t = window.setTimeout(() => {
+        const firstInput = cardRef.current?.querySelector<HTMLInputElement>('input[type="text"], input:not([type])');
+        firstInput?.focus();
+        firstInput?.select?.();
+      }, 0);
+      return () => window.clearTimeout(t);
     }
   }, [employee, isOpen, config]);
 
@@ -95,8 +108,10 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
   const workShifts = shifts.filter(s => s.isWork);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={employee ? t('modal.employee.title.edit') : t('modal.employee.title.new')}>
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={employee ? t('modal.employee.title.edit') : t('modal.employee.title.new')}>
       <motion.div
+        ref={cardRef}
+        onClick={e => e.stopPropagation()}
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         className="bg-white w-full max-w-2xl rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
@@ -105,7 +120,7 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
           <h3 className="text-lg font-bold text-slate-800">
             {employee ? t('modal.employee.title.edit') : t('modal.employee.title.new')}
           </h3>
-          <button ref={closeButtonRef} onClick={onClose} aria-label={t('action.cancel')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors">
+          <button onClick={onClose} aria-label={t('action.cancel')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>
@@ -147,13 +162,13 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
                  <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black tracking-widest">AUTO: (SALARY / {monthlyHoursDivisor(formData, config)})</span>
               </div>
             </div>
-            <SettingField label={t('modal.employee.field.holidayBank')} type="number" value={formData.holidayBank} onChange={v => setFormData({...formData, holidayBank: parseInt(v)})} />
-            <SettingField label={t('modal.employee.field.annualLeave')} type="number" value={formData.annualLeaveBalance} onChange={v => setFormData({...formData, annualLeaveBalance: parseInt(v)})} />
+            <SettingField label={t('modal.employee.field.holidayBank')} type="number" value={formData.holidayBank} onChange={v => setFormData({...formData, holidayBank: Math.max(0, parseInt(v) || 0)})} />
+            <SettingField label={t('modal.employee.field.annualLeave')} type="number" value={formData.annualLeaveBalance} onChange={v => setFormData({...formData, annualLeaveBalance: Math.max(0, parseInt(v) || 0)})} />
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('modal.employee.field.restPolicy')}</label>
               <select
                 value={formData.fixedRestDay}
-                onChange={e => setFormData({...formData, fixedRestDay: parseInt(e.target.value)})}
+                onChange={e => setFormData({...formData, fixedRestDay: parseInt(e.target.value) || 0})}
                 className="w-full px-4 py-2 bg-white border border-slate-200 rounded text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
               >
                 <option value={0}>{t('modal.employee.rest.rotate')}</option>

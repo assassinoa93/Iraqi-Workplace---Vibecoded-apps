@@ -144,13 +144,16 @@ export function PayrollTab({ employees, schedule, shifts, holidays, config, allS
         const emp = id ? empById.get(id) : undefined;
         if (!emp) { skipped++; continue; }
         const next: Employee = { ...emp };
+        // v2.1.2 — guard non-negative for all three balances. Negative
+        // values surfaced as a "credit deficit" in payroll which is
+        // never the supervisor's intent.
         if (bankIdx !== -1) {
           const v = parseFloat(cols[bankIdx]);
-          if (Number.isFinite(v)) next.holidayBank = v;
+          if (Number.isFinite(v) && v >= 0) next.holidayBank = v;
         }
         if (alIdx !== -1) {
           const v = parseFloat(cols[alIdx]);
-          if (Number.isFinite(v)) next.annualLeaveBalance = v;
+          if (Number.isFinite(v) && v >= 0) next.annualLeaveBalance = v;
         }
         if (salIdx !== -1) {
           const v = parseFloat(cols[salIdx]);
@@ -362,23 +365,6 @@ export function PayrollTab({ employees, schedule, shifts, holidays, config, allS
         }}
       />
 
-      {/* HolidayCompensationModal was removed in v1.14.0 — Iraqi Labor Law
-          Art. 74 entitles workers to BOTH the 2× cash premium AND a comp
-          rest day, not a choice between them. The choose-comps toggle
-          modeled the wrong legal interpretation.
-      <HolidayCompensationModal
-        isOpen={compEditFor !== null}
-        employee={compEditFor}
-        schedule={schedule}
-        shifts={shifts}
-        holidays={holidays}
-        config={config}
-        onClose={() => setCompEditFor(null)}
-        onSave={(next) => {
-          onUpdateEmployee(next);
-          setCompEditFor(null);
-        }}
-      /> */}
     </div>
   );
 }

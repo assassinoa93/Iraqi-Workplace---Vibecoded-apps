@@ -101,19 +101,28 @@ export function LeaveManagerModal({ isOpen, onClose, employee, onSave, schedule,
   };
 
   return (
+    // v2.1.2 — dynamic key on the AnimatePresence child keyed on the
+    // employee being managed. A constant key under StrictMode could
+    // leave the exit animation hanging, then the modal stays invisible
+    // on the next open. Same pattern flagged for ConfirmModal in
+    // memory feedback_react_animatepresence.md.
     <AnimatePresence>
       {isOpen && (
         <motion.div
+          key={`leave-mgr-backdrop:${employee.empId}`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
+          onClick={onClose}
           className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-label={t('leaves.modal.title')}
         >
           <motion.div
+            key={`leave-mgr-card:${employee.empId}`}
+            onClick={e => e.stopPropagation()}
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}

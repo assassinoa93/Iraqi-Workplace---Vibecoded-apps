@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { format } from 'date-fns';
-import { PublicHoliday } from '../types';
+import { PublicHoliday, HolidayCompMode } from '../types';
 import { SettingField } from './Primitives';
+import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
 import { useModalKeys } from '../lib/hooks';
 
@@ -12,29 +13,50 @@ interface HolidayModalProps {
   onClose: () => void;
   onSave: (h: PublicHoliday) => void;
   holiday: PublicHoliday | null;
+  // v2.1.2: configured global compMode so the per-holiday picker can
+  // show "(default)" against the inheriting option.
+  defaultCompMode?: HolidayCompMode;
 }
 
 const empty = (): PublicHoliday => ({
   date: format(new Date(), 'yyyy-MM-dd'),
   name: '',
   type: 'National',
-  legalReference: 'Article 73'
+  // v2.1.2 fix: was 'Article 73', diverging from the rest of the
+  // codebase which cites Art. 74 for holiday work.
+  legalReference: 'Art. 74',
 });
 
-export function HolidayModal({ isOpen, onClose, onSave, holiday }: HolidayModalProps) {
+export function HolidayModal({ isOpen, onClose, onSave, holiday, defaultCompMode = 'comp-day' }: HolidayModalProps) {
   const { t } = useI18n();
-  const closeButtonRef = useModalKeys(isOpen, onClose) as React.RefObject<HTMLButtonElement>;
+  useModalKeys(isOpen, onClose);
   const [formData, setFormData] = useState<PublicHoliday>(holiday || empty());
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) setFormData(holiday || empty());
+    if (isOpen) {
+      setFormData(holiday || empty());
+      setError(null);
+    }
   }, [holiday, isOpen]);
 
   if (!isOpen) return null;
 
+  const handleSave = () => {
+    const name = formData.name.trim();
+    if (!name) { setError(t('modal.holiday.error.name')); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(formData.date)) { setError(t('modal.holiday.error.date')); return; }
+    onSave({ ...formData, name });
+    onClose();
+  };
+
+  const setCompMode = (m: HolidayCompMode | undefined) => setFormData(prev => ({ ...prev, compMode: m }));
+  const effectiveMode: HolidayCompMode = formData.compMode ?? defaultCompMode;
+
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={holiday ? t('modal.holiday.title.edit') : t('modal.holiday.title.new')}>
+    <div onClick={onClose} className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={holiday ? t('modal.holiday.title.edit') : t('modal.holiday.title.new')}>
       <motion.div
+        onClick={e => e.stopPropagation()}
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         className="bg-white w-full max-w-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
@@ -43,25 +65,80 @@ export function HolidayModal({ isOpen, onClose, onSave, holiday }: HolidayModalP
           <h3 className="text-lg font-bold text-slate-800">
             {holiday ? t('modal.holiday.title.edit') : t('modal.holiday.title.new')}
           </h3>
-          <button ref={closeButtonRef} onClick={onClose} aria-label={t('action.cancel')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors">
+          <button onClick={onClose} aria-label={t('action.cancel')} className="p-2 hover:bg-slate-200 rounded-lg transition-colors">
             <X className="w-5 h-5 text-slate-500" />
           </button>
         </div>
 
         <div className="p-8 space-y-4">
-          <SettingField label="Holiday Date" type="text" value={formData.date} onChange={v => setFormData({...formData, date: v})} />
-          <SettingField label="Holiday Name" value={formData.name} onChange={v => setFormData({...formData, name: v})} />
-          <SettingField label="Category" type="select" options={['National', 'Religious', 'Sector-Specific', 'Custom']} value={formData.type} onChange={v => setFormData({...formData, type: v})} />
-          <SettingField label="Legal Reference" value={formData.legalReference} onChange={v => setFormData({...formData, legalReference: v})} />
+          <SettingField label={t('modal.holiday.field.date')} type="text" value={formData.date} onChange={v => setFormData({...formData, date: v})} />
+          <p className="text-[10px] text-slate-400 -mt-2">{t('modal.holiday.field.date.hint')}</p>
+          <SettingField label={t('modal.holiday.field.name')} value={formData.name} onChange={v => setFormData({...formData, name: v})} />
+          <SettingField
+            label={t('modal.holiday.field.category')}
+            type="select"
+            options={['National', 'Religious', 'Sector-Specific', 'Custom']}
+            value={formData.type}
+            onChange={v => setFormData({...formData, type: v})}
+          />
+          <SettingField label={t('modal.holiday.field.legalRef')} value={formData.legalReference} onChange={v => setFormData({...formData, legalReference: v})} />
+
+          {/* Per-holiday Art. 74 compMode picker. Lets the user pre-set
+              the override at create time instead of saving then editing
+              the pill on the holidays tab. */}
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('modal.holiday.field.compMode')}</label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setCompMode(undefined)}
+                className={cn(
+                  'px-3 py-2 rounded-lg border text-[10px] font-bold uppercase tracking-widest transition-all',
+                  formData.compMode === undefined ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300',
+                )}
+              >
+                {t('modal.holiday.compMode.inherit')}
+                <div className="text-[8px] font-medium normal-case opacity-70 mt-0.5">
+                  {effectiveMode === 'comp-day' ? t('holidays.compMode.compDay') : t('holidays.compMode.cashOt')}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompMode('comp-day')}
+                className={cn(
+                  'px-3 py-2 rounded-lg border text-[10px] font-bold uppercase tracking-widest transition-all',
+                  formData.compMode === 'comp-day' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300',
+                )}
+              >
+                {t('holidays.compMode.compDay')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompMode('cash-ot')}
+                className={cn(
+                  'px-3 py-2 rounded-lg border text-[10px] font-bold uppercase tracking-widest transition-all',
+                  formData.compMode === 'cash-ot' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300',
+                )}
+              >
+                {t('holidays.compMode.cashOt')}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
         </div>
 
         <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
           <button onClick={onClose} className="px-6 py-2 rounded text-sm font-bold text-slate-500 hover:bg-slate-200 transition-all uppercase tracking-widest">{t('action.cancel')}</button>
           <button
-            onClick={() => onSave(formData)}
+            onClick={handleSave}
             className="px-8 py-2 bg-slate-900 text-white rounded text-sm font-bold hover:bg-slate-800 transition-all shadow-lg uppercase tracking-widest"
           >
-            {t('modal.holiday.declare')}
+            {holiday ? t('action.save') : t('modal.holiday.declare')}
           </button>
         </div>
       </motion.div>
