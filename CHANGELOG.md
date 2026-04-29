@@ -2,6 +2,25 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v2.7.0 — 2026-04-29
+
+**Design-system pass + per-station demand profile.** Two user-driven items: pulled the sidebar pattern out of the new claude.ai/design package and wired it into production, then carried the v2.6 FTE/PT annual demand profile down into the per-station and per-group drilldowns so the depth of analysis is consistent at every level of the workforce planner.
+
+**Sidebar — design-system pattern**
+- TabButton switches from the v2.6 leading-edge blue stripe to a macOS Big Sur-style rounded-12 pill: tinted blue surface, hairline blue ring, inset highlight, and a small pulsing blue dot at the inline-end edge. Auto-mirrors in RTL via logical classes.
+- Brand area gets a monochrome calendar-check icon block + concise wordmark + mono version pip — replaces the all-caps text-only header.
+- Sidebar narrowed from 256→248 px and the rail palette aligned to the design tokens (`#0f172a`).
+- SidebarGroup tightened — lighter dividers, indentation aligned with the new pill margin.
+
+**Workforce Planning — per-station demand profile**
+- The v2.6 Annual Headcount Plan panel introduced FTE / PT split with Avg / Median / Peak / Valley tiles for the company as a whole. v2.7 takes that exact treatment to the per-station and per-group expanded drilldowns. Click any station or group row → see the same 4-tile demand profile **scoped to just that station / group** (e.g. "Cashier Counter 3 peaks at 4 FTE in April, valleys at 2 in August").
+- Standalone station rollup rows (the no-group case) are now click-to-expand with the same profile.
+- New `MonthlyDemandProfile` component renders a compact two-column FT | PT layout that auto-collapses to a single column when only one contract type is recommended (conservative mode).
+- `AnnualRollupStation` and `AnnualRollupGroup` now expose `monthlyFTE: number[12]` and `monthlyPartTime: number[12]` arrays — the data was already computed inside `buildAnnualRollup` but discarded after reducing to a single recommendation. The new fields cost no extra compute. `fiveNumberSummary()` extracted to a top-level helper so the top KPI panel and the drilldowns compute identically.
+
+**Compatibility**
+- 108 / 108 tests pass. Backups load unchanged — `monthlyFTE` / `monthlyPartTime` are runtime-computed, not persisted. The sidebar markup change is structurally equivalent (button + label + dot) so screen readers still announce the same nav.
+
 ## v2.6.0 — 2026-04-29
 
 **Apple-polish UX overhaul.** The biggest visual sweep since v1: a coherent design-token system, a comprehensively dark dark mode, visible schedule grid lines in both themes, and Excel-style pivot grouping in the schedule. Two user-driven fixes round it out — the Workforce Planning forecast now projects movable holidays by month/day instead of dropping them, and the Schedule grid's "Group by station" toggle now collapses station blocks instead of just sorting rows.

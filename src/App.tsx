@@ -2042,14 +2042,34 @@ export default function App() {
         accept=".json"
       />
       <div className="flex h-screen bg-[#F3F4F6] dark:bg-[#0d1117] font-sans text-slate-800 dark:text-slate-100 overflow-hidden">
-      {/* Left Navigation Rail. v2.6 — sidebar palette unified between light
-          and dark themes (it's always dark) but with a softer slate that
-          matches the dark-mode surface tokens, plus a subtle inset shadow at
-          the inline-end edge so the rail "leans into" the content panel. */}
-      <aside className="w-64 bg-[#161b22] flex flex-col border-r border-slate-800/80 shrink-0 shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)]">
-        <div className="p-6 border-b border-slate-800/80 bg-gradient-to-b from-[#1c2230] to-[#0d1117]">
-          <h1 className="text-white font-bold tracking-tight text-lg uppercase">{t('sidebar.brand.line1')}</h1>
-          <p className="text-blue-300 text-[10px] uppercase tracking-widest font-bold mt-1">{t('sidebar.brand.line2')} v{APP_VERSION}</p>
+      {/* Left Navigation Rail. v2.6 design-pass — sidebar follows the
+          claude.ai/design package's "macOS Big Sur" pattern:
+            • 248px width (was 256px), reduces dead space on 1366×768
+              laptops while keeping nav labels intact
+            • Brand area pairs a monochrome calendar-check mark with the
+              wordmark, replacing the all-caps text-only header
+            • Subtle inset shadow at the inline-end edge so the rail
+              "leans into" the content panel */}
+      <aside className="w-[248px] bg-[#0f172a] flex flex-col border-r border-white/[0.04] shrink-0 shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)]">
+        <div className="px-5 pt-5 pb-4 flex items-center gap-3 border-b border-white/[0.04]">
+          <div
+            className="w-9 h-9 rounded-[10px] bg-white/[0.06] border border-white/[0.08] flex items-center justify-center shrink-0"
+            aria-hidden
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+              <rect x="3.5" y="5" width="17" height="15" rx="3" />
+              <path d="M3.5 9.5h17" />
+              <path d="M8 3v3" />
+              <path d="M16 3v3" />
+              <path d="M9 14.5l2 2 4-4.5" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-white font-semibold tracking-tight text-[15px] leading-tight truncate">
+              {t('sidebar.brand.line1')} {t('sidebar.brand.line2')}
+            </h1>
+            <p className="text-slate-500 text-[10px] font-mono mt-0.5">v{APP_VERSION}</p>
+          </div>
         </div>
 
         {/* Company switcher */}

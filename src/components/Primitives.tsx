@@ -231,42 +231,54 @@ export function MonthYearPicker({
 // (Operations / Analytics / Setup / System). Renders a small caps label
 // with subtle separators above and below so the navigation reads as a
 // hierarchical menu rather than a long flat list.
+//
+// v2.6.0 — tightened padding + lighter weight to match the design
+// system's eyebrow rhythm. Indentation aligns with the new TabButton
+// (which carries `mx-2` for the rounded-pill active treatment).
 export const SidebarGroup = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="mb-3">
-    <div className="px-6 py-2 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">{label}</div>
-    <div>{children}</div>
+  <div className="mb-2">
+    <div className="px-5 pt-3 pb-1.5 text-[9px] font-black text-slate-500 dark:text-slate-500 uppercase tracking-[0.2em]">{label}</div>
+    <div className="space-y-0.5">{children}</div>
   </div>
 );
 
-// Sidebar tab nav button. v2.6 polish:
-//   • Fixed-width index column so labels line up regardless of digit count
-//   • Inline-end alignment of the active blue strip so it pins to the visual
-//     start of the tab regardless of UI direction (`ms-`/`me-`-style bar)
-//   • A soft hairline left border on inactive tabs that fades into the rail —
-//     gives a sense of "rail" continuity without competing with the active
-//     blue stripe.
+// Sidebar tab nav button.
+//
+// v2.6.0 (design-system pass) — adopts the macOS Big Sur "rounded pill"
+// active treatment from `Sidebar.jsx` in the design package:
+//   • Active tab paints a `rounded-xl` (12px) tinted-blue surface with a
+//     hairline blue ring, instead of the previous edge-pinned stripe.
+//   • A small pulsing blue dot sits at the inline-end edge of the active
+//     row, replacing the leading bar as the "you are here" cue.
+//   • Inactive tabs get a faint `slate-800/70` hover (Apple-quiet).
+//   • Index numerals are mono + tabular so two-digit IDs line up.
+//
+// The `dir="rtl"` flow is handled by the parent — `start-*` / `end-*`
+// classes auto-mirror so the dot lands on the visual end of the row in
+// either direction. Pre-2.6 the leading bar was force-placed via
+// `border-l-4` and needed a CSS override to mirror in RTL.
 export const TabButton = ({ active, label, index, onClick }: { active: boolean; icon?: any; label: string; index: string; onClick: () => void }) => (
   <button
     onClick={onClick}
     className={cn(
-      "w-full flex items-center gap-4 px-6 py-3 text-sm transition-colors duration-150 relative",
+      "w-full flex items-center gap-3 px-3 py-2.5 mx-2 rounded-xl text-sm transition-colors duration-150 relative",
       active
-        ? "bg-blue-500/15 text-white font-semibold"
-        : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-100"
+        ? "bg-blue-500/[0.18] text-white font-semibold border border-blue-400/[0.22] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+        : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100 border border-transparent",
     )}
   >
-    <span
-      aria-hidden
-      className={cn(
-        "absolute inset-y-1.5 start-0 w-[3px] rounded-r-full transition-all duration-200",
-        active ? "bg-blue-400 opacity-100" : "bg-transparent opacity-0",
-      )}
-    />
     <span className={cn(
-      "text-[10px] font-bold transition-opacity tabular-nums",
-      active ? "text-blue-300 opacity-100" : "opacity-40",
+      "font-mono text-[10px] font-bold transition-opacity tabular-nums w-3.5 shrink-0 text-center",
+      active ? "text-blue-300 opacity-100" : "text-slate-500 opacity-60",
     )}>{index}</span>
-    <span className="truncate">{label}</span>
+    <span className="truncate flex-1 text-start">{label}</span>
+    {active && (
+      <span
+        aria-hidden
+        className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"
+        style={{ boxShadow: "0 0 0 3px rgba(96,165,250,0.18)" }}
+      />
+    )}
   </button>
 );
 

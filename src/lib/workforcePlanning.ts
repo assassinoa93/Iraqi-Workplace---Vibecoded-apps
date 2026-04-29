@@ -502,10 +502,17 @@ export interface AnnualRollupStation {
   recommendedFTE: number;          // year-round recommendation
   recommendedPartTime: number;
   reasoning: string;
+  // v2.6.0 — per-month FTE/PT need for the year. Length 12, index 0 = Jan.
+  // Lets the UI compute the same 5-number summary (avg / median / peak /
+  // valley) per station that the top-level Annual Headcount Plan panel
+  // shows for the company as a whole. Pre-2.6 this data was discarded
+  // after the recommendation was reduced to a single number.
+  monthlyFTE: number[];
+  monthlyPartTime: number[];
   // Current count of employees ELIGIBLE to staff this station (i.e.
   // station appears in their eligibleStations or they match requiredRoles).
   currentEligibleCount: number;
-  // v2.3.0 — split the current count into FT and PT so the comparative
+  // v2.3.0 — split the current count into PT and FT so the comparative
   // KPI reads "3 FT + 1 PT / 5 FT + 0 PT" instead of "4 / 5". PT is
   // anyone with `contractedWeeklyHrs < config.standardWeeklyHrsCap`.
   currentFTECount: number;
@@ -549,6 +556,11 @@ export interface AnnualRollupGroup {
   recommendedFTE: number;
   recommendedPartTime: number;
   reasoning: string;
+  // v2.6.0 — per-month FTE/PT need across the year (length 12, idx 0 = Jan).
+  // Same purpose as AnnualRollupStation.monthlyFTE — drives the per-group
+  // demand-profile UI (avg / median / peak / valley split for FT and PT).
+  monthlyFTE: number[];
+  monthlyPartTime: number[];
   // Number of CURRENT employees who can staff this group via either
   // eligibleGroups membership or eligibleStations covering ≥1 of its
   // member stations. The supervisor reads this as "I have X people
@@ -917,6 +929,19 @@ export function buildAnnualRollup(
     const recommendedPartTime = mode === 'conservative'
       ? 0
       : Math.round(months.reduce((s, p) => s + p.pt, 0) / months.length);
+    // v2.6.0 — dense 12-element arrays so the UI can compute its own
+    // 5-number summary (avg / median / peak / valley) per contract type.
+    // Months that didn't appear in stationDemandPerMonth (no demand)
+    // backfill to 0 — preserving the index alignment with the byMonth
+    // series.
+    const monthlyFTEArr = Array(12).fill(0);
+    const monthlyPartTimeArr = Array(12).fill(0);
+    for (const p of months) {
+      if (p.idx >= 1 && p.idx <= 12) {
+        monthlyFTEArr[p.idx - 1] = p.fte;
+        monthlyPartTimeArr[p.idx - 1] = p.pt;
+      }
+    }
     const eligibility = eligibilityCount(st);
     const currentEligible = eligibility.total;
     // v2.5.0 — delta + action measure effective supply against demand.
@@ -949,6 +974,8 @@ export function buildAnnualRollup(
       recommendedFTE,
       recommendedPartTime,
       reasoning,
+      monthlyFTE: monthlyFTEArr,
+      monthlyPartTime: monthlyPartTimeArr,
       currentEligibleCount: currentEligible,
       currentFTECount: eligibility.fte,
       currentPartTimeCount: eligibility.pt,
@@ -1004,20 +1031,30 @@ export function buildAnnualRollup(
     const peakMix = recommendMix(peakMonth.required, peakMonth.peakHrs, peakMonth.nonPeakHrs, peakMonth.cap, mode);
     const peakMonthFTE = peakMix.recommendedFTE + peakMix.recommendedPartTime;
 
+    // v2.6.0 — dense per-month FTE/PT for the group. Computed in the
+    // active mode (conservative collapses PT to 0 by definition; optimal
+    // uses recommendMix).  Populated regardless of which branch wins so
+    // the UI always has the curve to render.
+    const monthlyFTEArr = Array(12).fill(0);
+    const monthlyPartTimeArr = Array(12).fill(0);
+    for (const p of groupDemandPerMonth) {
+      const mix = recommendMix(p.required, p.peakHrs, p.nonPeakHrs, p.cap, mode);
+      if (p.idx >= 1 && p.idx <= 12) {
+        monthlyFTEArr[p.idx - 1] = mix.recommendedFTE;
+        monthlyPartTimeArr[p.idx - 1] = mix.recommendedPartTime;
+      }
+    }
+
     let recommendedFTE: number;
     let recommendedPartTime: number;
     if (mode === 'conservative') {
       recommendedFTE = peakMix.recommendedFTE;
       recommendedPartTime = 0;
     } else {
-      // Optimal: average across months.
-      const ftes: number[] = [];
-      const pts: number[] = [];
-      for (const p of groupDemandPerMonth) {
-        const mix = recommendMix(p.required, p.peakHrs, p.nonPeakHrs, p.cap, 'optimal');
-        ftes.push(mix.recommendedFTE);
-        pts.push(mix.recommendedPartTime);
-      }
+      // Optimal: average across months. Reuse the per-month curve we
+      // already built above instead of recomputing.
+      const ftes = groupDemandPerMonth.map(p => monthlyFTEArr[p.idx - 1]);
+      const pts = groupDemandPerMonth.map(p => monthlyPartTimeArr[p.idx - 1]);
       recommendedFTE = Math.round(ftes.reduce((s, x) => s + x, 0) / ftes.length);
       recommendedPartTime = Math.round(pts.reduce((s, x) => s + x, 0) / pts.length);
     }
@@ -1059,6 +1096,8 @@ export function buildAnnualRollup(
       recommendedFTE,
       recommendedPartTime,
       reasoning,
+      monthlyFTE: monthlyFTEArr,
+      monthlyPartTime: monthlyPartTimeArr,
       currentEligibleCount: eligibleCount,
       currentFTECount: groupFTE,
       currentPartTimeCount: groupPT,

@@ -65,11 +65,11 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v2.6.0)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-2.6.0.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v2.7.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-2.7.0.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.6.0.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.7.0.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -77,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.6.0…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.7.0…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -218,6 +218,16 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v2.7.0
+
+**Design-system pass + per-station demand profile.** Two user-driven items: pulled the sidebar pattern out of the new claude.ai/design package and wired it into production, then carried the v2.6 FTE/PT annual demand profile down into the per-station and per-group drilldowns so the depth of analysis is consistent at every level of the workforce planner.
+
+| Area | Change |
+|------|--------|
+| **Sidebar — design-system pattern** | TabButton switches from the v2.6 leading-edge blue stripe to a macOS Big Sur-style rounded-12 pill: tinted blue surface, hairline blue ring, inset highlight, and a small pulsing blue dot at the inline-end edge. Auto-mirrors in RTL via logical classes. Brand area gets a monochrome calendar-check icon block + concise wordmark + mono version pip — replaces the all-caps text-only header. Sidebar narrowed from 256→248 px and the rail palette aligned to the design tokens (`#0f172a`). |
+| **Workforce Planning — per-station demand profile** | The v2.6 Annual Headcount Plan panel introduced FTE / PT split with Avg / Median / Peak / Valley tiles for the company as a whole. v2.7 takes that exact treatment to the per-station and per-group expanded drilldowns. Click any station or group row → see the same 4-tile demand profile **scoped to just that station / group** (e.g. "Cashier Counter 3 peaks at 4 FTE in April, valleys at 2 in August"). Standalone station rollup rows (the no-group case) are now click-to-expand with the same profile. New `MonthlyDemandProfile` component renders a compact two-column FT \| PT layout that auto-collapses to a single column when only one contract type is recommended (conservative mode). |
+| **Library — monthly arrays exposed** | `AnnualRollupStation` and `AnnualRollupGroup` now carry `monthlyFTE: number[12]` and `monthlyPartTime: number[12]`. The data was already computed inside `buildAnnualRollup` but discarded after reducing to a single recommendation. The new fields cost no extra compute. `fiveNumberSummary()` extracted to a top-level helper so the top KPI panel and the drilldowns compute identically. |
 
 ## 📦 What's new in v2.6.0
 

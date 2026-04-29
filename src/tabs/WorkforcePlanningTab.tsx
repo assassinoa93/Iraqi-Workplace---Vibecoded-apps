@@ -120,29 +120,11 @@ export function WorkforcePlanningTab(props: Props) {
   const headcountStats = useMemo(() => {
     const fteSeries = annual.byMonth.map(m => m.recommendedFTE);
     const ptSeries = annual.byMonth.map(m => m.recommendedPartTime);
-    const fiveNumber = (series: number[]) => {
-      if (series.length === 0) return { avg: 0, median: 0, peak: 0, valley: 0, peakMonthIndex: 1, valleyMonthIndex: 1 };
-      let peak = series[0];
-      let valley = series[0];
-      let peakIdx = 1;
-      let valleyIdx = 1;
-      let sum = 0;
-      for (let i = 0; i < series.length; i++) {
-        const v = series[i];
-        sum += v;
-        if (v > peak) { peak = v; peakIdx = i + 1; }
-        if (v < valley) { valley = v; valleyIdx = i + 1; }
-      }
-      const sorted = [...series].sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-      return { avg: sum / series.length, median, peak, valley, peakMonthIndex: peakIdx, valleyMonthIndex: valleyIdx };
-    };
     const cap = forecastConfig.standardWeeklyHrsCap || 48;
     const currentFTE = employees.filter(e => (e.contractedWeeklyHrs || cap) >= cap).length;
     const currentPT = employees.length - currentFTE;
-    const fteStats = fiveNumber(fteSeries);
-    const ptStats = fiveNumber(ptSeries);
+    const fteStats = fiveNumberSummary(fteSeries);
+    const ptStats = fiveNumberSummary(ptSeries);
     const monthName = (i: number) => annual.byMonth[i - 1]?.monthName ?? '';
     return {
       fte: {
@@ -829,6 +811,145 @@ function ProfileTile({
   );
 }
 
+// v2.6.0 — shared 5-number summary helper. Walks a year-long series
+// (length 12) and returns the mean, median, peak (with month index),
+// and valley (with month index). Powers both the top-level Annual
+// Headcount Plan panel AND the per-station / per-group demand profile
+// shown when the supervisor expands a rollup row. Centralised so the
+// UI never disagrees with itself about how those four numbers are
+// computed.
+function fiveNumberSummary(series: number[]): {
+  avg: number; median: number; peak: number; valley: number;
+  peakMonthIndex: number; valleyMonthIndex: number;
+} {
+  if (series.length === 0) {
+    return { avg: 0, median: 0, peak: 0, valley: 0, peakMonthIndex: 1, valleyMonthIndex: 1 };
+  }
+  let peak = series[0];
+  let valley = series[0];
+  let peakIdx = 1;
+  let valleyIdx = 1;
+  let sum = 0;
+  for (let i = 0; i < series.length; i++) {
+    const v = series[i];
+    sum += v;
+    if (v > peak) { peak = v; peakIdx = i + 1; }
+    if (v < valley) { valley = v; valleyIdx = i + 1; }
+  }
+  const sorted = [...series].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { avg: sum / series.length, median, peak, valley, peakMonthIndex: peakIdx, valleyMonthIndex: valleyIdx };
+}
+
+// v2.6.0 — Per-station / per-group demand profile.
+//
+// Compact version of the top-level AnnualHeadcountPanel for use inside
+// expanded drilldown rows. Renders FT and PT as two side-by-side
+// micro-cards: each shows the year-round recommendation as the
+// headline, with the Avg / Median / Peak / Valley quad below it
+// (peak/valley tagged with month names). Designed to fit inside a
+// drilldown card without dominating it.
+//
+// Shows columns conditionally — if both FT and PT recommendations are
+// 0 across the year, the relevant column is omitted entirely instead
+// of cluttering the row with all-zero stats.
+function MonthlyDemandProfile({
+  monthlyFTE, monthlyPartTime, recommendedFTE, recommendedPartTime,
+}: {
+  monthlyFTE: number[];
+  monthlyPartTime: number[];
+  recommendedFTE: number;
+  recommendedPartTime: number;
+}) {
+  const { t } = useI18n();
+  const fteAllZero = monthlyFTE.every(v => v === 0) && recommendedFTE === 0;
+  const ptAllZero = monthlyPartTime.every(v => v === 0) && recommendedPartTime === 0;
+  if (fteAllZero && ptAllZero) return null;
+
+  const fteStats = fiveNumberSummary(monthlyFTE);
+  const ptStats = fiveNumberSummary(monthlyPartTime);
+  const monthName = (i: number) => i >= 1 && i <= 12 ? t(MONTH_NAME_KEYS[i - 1]) : '';
+  const fmt = (n: number) => Number.isFinite(n) ? (Math.round(n * 10) / 10).toString() : '0';
+
+  // Local micro-tile so the per-station view keeps the same Avg /
+  // Median / Peak / Valley typography rhythm as the top panel without
+  // pulling the heavier ProfileTile component in.
+  const Tile = ({ label, value, month, tone = 'neutral' }: {
+    label: string; value: string; month?: string; tone?: 'neutral' | 'rose' | 'emerald';
+  }) => {
+    const headerCls =
+      tone === 'rose' ? 'text-rose-700 dark:text-rose-300'
+      : tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300'
+      : 'text-slate-500 dark:text-slate-400';
+    const valueCls =
+      tone === 'rose' ? 'text-rose-700 dark:text-rose-200'
+      : tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-200'
+      : 'text-slate-800 dark:text-slate-100';
+    return (
+      <div className="bg-white dark:bg-slate-900/40 rounded-md px-2 py-1.5 border border-slate-200 dark:border-slate-700/60 text-center">
+        <p className={cn('text-[7px] font-black uppercase tracking-widest mb-0.5', headerCls)}>{label}</p>
+        <p className={cn('text-sm font-black tabular-nums leading-none', valueCls)}>{value}</p>
+        {month && <p className="text-[7px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mt-0.5">{month}</p>}
+      </div>
+    );
+  };
+
+  // One column per contract type. The header shows the year-round
+  // recommendation as the headline (matches the top-level pattern);
+  // tile grid below shows the 4-stat profile.
+  const Column = ({ tone, label, recommended, stats }: {
+    tone: 'blue' | 'purple';
+    label: string;
+    recommended: number;
+    stats: ReturnType<typeof fiveNumberSummary>;
+  }) => {
+    const accentBg = tone === 'blue'
+      ? 'bg-blue-50/50 dark:bg-blue-500/10 border-blue-100 dark:border-blue-500/25'
+      : 'bg-purple-50/50 dark:bg-purple-500/10 border-purple-100 dark:border-purple-500/25';
+    const accentText = tone === 'blue'
+      ? 'text-blue-700 dark:text-blue-200'
+      : 'text-purple-700 dark:text-purple-200';
+    return (
+      <div className={cn('rounded-lg p-2.5 border', accentBg)}>
+        <div className="flex items-baseline justify-between gap-2 mb-2">
+          <p className={cn('text-[9px] font-black uppercase tracking-widest', accentText)}>{label}</p>
+          <p className={cn('text-lg font-black tabular-nums leading-none', accentText)}>{recommended}</p>
+        </div>
+        <div className="grid grid-cols-4 gap-1">
+          <Tile label={t('workforce.headcount.profile.avg')} value={fmt(stats.avg)} />
+          <Tile label={t('workforce.headcount.profile.median')} value={fmt(stats.median)} />
+          <Tile label={t('workforce.headcount.profile.peak')} value={String(stats.peak)} month={monthName(stats.peakMonthIndex)} tone="rose" />
+          <Tile label={t('workforce.headcount.profile.valley')} value={String(stats.valley)} month={monthName(stats.valleyMonthIndex)} tone="emerald" />
+        </div>
+      </div>
+    );
+  };
+
+  // Single-column when only FT is non-zero (conservative mode); full
+  // two-column when both contract types are recommended.
+  return (
+    <div className={cn('grid gap-2', !ptAllZero ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1')}>
+      {!fteAllZero && (
+        <Column
+          tone="blue"
+          label={t('workforce.headcount.fte.label')}
+          recommended={recommendedFTE}
+          stats={fteStats}
+        />
+      )}
+      {!ptAllZero && (
+        <Column
+          tone="purple"
+          label={t('workforce.headcount.pt.label')}
+          recommended={recommendedPartTime}
+          stats={ptStats}
+        />
+      )}
+    </div>
+  );
+}
+
 // Apple-style segmented control for mode (Conservative ↔ Optimal).
 function ModeToggle({ mode, onChange }: { mode: PlanMode; onChange: (m: PlanMode) => void }) {
   const { t } = useI18n();
@@ -965,8 +1086,18 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
 
       {expanded && memberStationRollups.length > 0 && (
         <div className="px-5 pb-5 -mt-2">
-          <div className="ml-14 pl-4 border-l-2 border-slate-200 space-y-2">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('workforce.group.drilldown')}</p>
+          <div className="ms-14 ps-4 border-s-2 border-slate-200 dark:border-slate-700/60 space-y-3">
+            <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{t('workforce.group.drilldown')}</p>
+            {/* v2.6.0 — group-level demand profile matches the per-station
+                drill below: same Avg / Median / Peak / Valley tiles for
+                FT and PT. Lets the supervisor read the group-level
+                picture without summing children manually. */}
+            <MonthlyDemandProfile
+              monthlyFTE={group.monthlyFTE}
+              monthlyPartTime={group.monthlyPartTime}
+              recommendedFTE={group.recommendedFTE}
+              recommendedPartTime={group.recommendedPartTime}
+            />
             {memberStationRollups.map(s => {
               const totalRec = s.recommendedFTE + s.recommendedPartTime;
               // v2.5.0 — surface the *effective* supply (fair-share) so
@@ -974,51 +1105,62 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
               // reads "3.5 effective / 2 needed" instead of the
               // misleading "35 / 2".
               const effectiveSupply = Math.round((s.effectiveSupplyFTE + s.effectiveSupplyPartTime) * 10) / 10;
-              const deltaTone = s.action === 'hire' ? 'text-rose-700' : s.action === 'release' ? 'text-amber-700' : 'text-emerald-700';
+              const deltaTone = s.action === 'hire' ? 'text-rose-700 dark:text-rose-300' : s.action === 'release' ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300';
               return (
-                <div key={s.stationId} className="bg-white rounded-lg border border-slate-100 p-3 flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-slate-800 truncate">{s.stationName}</p>
-                    <p className="text-[10px] text-slate-500 font-mono">{Math.round(s.annualRequiredHours).toLocaleString()}h/yr · peak {t(MONTH_NAME_KEYS[s.peakMonthIndex - 1])}</p>
+                <div key={s.stationId} className="bg-white dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700/60 p-3 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{s.stationName}</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{Math.round(s.annualRequiredHours).toLocaleString()}h/yr · peak {t(MONTH_NAME_KEYS[s.peakMonthIndex - 1])}</p>
+                    </div>
+                    {idealOnly ? (
+                      // Ideal-only: just the recommendation.
+                      <div className="text-end shrink-0">
+                        <p className="text-sm font-black text-emerald-700 dark:text-emerald-300">{s.recommendedFTE} FTE</p>
+                        {s.recommendedPartTime > 0 && (
+                          <p className="text-[10px] text-blue-700 dark:text-blue-300">+ {s.recommendedPartTime} PT</p>
+                        )}
+                      </div>
+                    ) : (
+                      // v2.2.0 — comparative: "current / recommended" matches the
+                      // parent group row's pattern so the supervisor reads the
+                      // drilldown the same way they read the rollup above.
+                      // v2.5.0 — headline numbers are now EFFECTIVE supply vs
+                      // recommended; raw eligible count moved to the tooltip.
+                      <div
+                        className="text-end shrink-0"
+                        title={t('workforce.rollup.effectiveTooltip', { eligible: s.currentEligibleCount, effective: effectiveSupply })}
+                      >
+                        <p className="text-sm font-black tabular-nums">
+                          <span className="text-slate-500 dark:text-slate-400">{effectiveSupply}</span>
+                          <span className="text-slate-300 dark:text-slate-600 mx-0.5">/</span>
+                          <span className={deltaTone}>{totalRec}</span>
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
+                          <span>
+                            {s.currentPartTimeCount > 0
+                              ? t('workforce.rollup.breakdown.ftePt', { fte: s.currentFTECount, pt: s.currentPartTimeCount })
+                              : t('workforce.rollup.breakdown.fte', { fte: s.currentFTECount })}
+                          </span>
+                          <span className="text-slate-300 dark:text-slate-600 mx-0.5">/</span>
+                          <span className={deltaTone}>
+                            {s.recommendedPartTime > 0
+                              ? t('workforce.rollup.breakdown.ftePt', { fte: s.recommendedFTE, pt: s.recommendedPartTime })
+                              : t('workforce.rollup.breakdown.fte', { fte: s.recommendedFTE })}
+                          </span>
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  {idealOnly ? (
-                    // Ideal-only: just the recommendation.
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-black text-emerald-700">{s.recommendedFTE} FTE</p>
-                      {s.recommendedPartTime > 0 && (
-                        <p className="text-[10px] text-blue-700">+ {s.recommendedPartTime} PT</p>
-                      )}
-                    </div>
-                  ) : (
-                    // v2.2.0 — comparative: "current / recommended" matches the
-                    // parent group row's pattern so the supervisor reads the
-                    // drilldown the same way they read the rollup above.
-                    // v2.5.0 — headline numbers are now EFFECTIVE supply vs
-                    // recommended; raw eligible count moved to the tooltip.
-                    <div
-                      className="text-right shrink-0"
-                      title={t('workforce.rollup.effectiveTooltip', { eligible: s.currentEligibleCount, effective: effectiveSupply })}
-                    >
-                      <p className="text-sm font-black tabular-nums">
-                        <span className="text-slate-500">{effectiveSupply}</span>
-                        <span className="text-slate-300 mx-0.5">/</span>
-                        <span className={deltaTone}>{totalRec}</span>
-                      </p>
-                      <p className="text-[10px] text-slate-500 tabular-nums">
-                        <span>
-                          {s.currentPartTimeCount > 0
-                            ? t('workforce.rollup.breakdown.ftePt', { fte: s.currentFTECount, pt: s.currentPartTimeCount })
-                            : t('workforce.rollup.breakdown.fte', { fte: s.currentFTECount })}
-                        </span>
-                        <span className="text-slate-300 mx-0.5">/</span>
-                        <span className={deltaTone}>
-                          {s.recommendedPartTime > 0
-                            ? t('workforce.rollup.breakdown.ftePt', { fte: s.recommendedFTE, pt: s.recommendedPartTime })
-                            : t('workforce.rollup.breakdown.fte', { fte: s.recommendedFTE })}
-                        </span>
-                      </p>
-                    </div>
-                  )}
+                  {/* v2.6.0 — annual demand profile (Avg / Median / Peak / Valley)
+                      per station, split FT vs PT. The same view the top-level
+                      Annual Headcount Plan offers, scoped to this single station. */}
+                  <MonthlyDemandProfile
+                    monthlyFTE={s.monthlyFTE}
+                    monthlyPartTime={s.monthlyPartTime}
+                    recommendedFTE={s.recommendedFTE}
+                    recommendedPartTime={s.recommendedPartTime}
+                  />
                 </div>
               );
             })}
@@ -1035,6 +1177,10 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
 // "Standard role needs 2 FTE".
 function RollupStationRow({ station, idealOnly }: { station: AnnualRollupStation; idealOnly: boolean }) {
   const { t } = useI18n();
+  // v2.6.0 — expandable to surface the FT/PT demand profile, mirroring
+  // the group-row drilldown behaviour. Rows start collapsed; the chevron
+  // and the row-wide click both toggle.
+  const [expanded, setExpanded] = useState(false);
   const actionTone =
     station.action === 'hire' ? { bg: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-700', Icon: TrendingUp }
       : station.action === 'release' ? { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', Icon: AlertTriangle }
@@ -1045,16 +1191,19 @@ function RollupStationRow({ station, idealOnly }: { station: AnnualRollupStation
     : station.action === 'release' ? t('workforce.action.release') : t('workforce.action.hold');
 
   return (
-    <div className="p-5 hover:bg-slate-50/40 transition-colors">
-      <div className="flex items-start gap-4">
-        <div className="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+    <div className="hover:bg-slate-50/40 dark:hover:bg-slate-800/30 transition-colors">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full p-5 text-start flex items-start gap-4"
+      >
+        <div className="w-11 h-11 rounded-xl bg-slate-900 dark:bg-slate-700 text-white flex items-center justify-center shrink-0">
           <MapPin className="w-5 h-5" />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           <div className="flex items-center gap-3 flex-wrap">
-            <h3 className="text-base font-bold text-slate-800 tracking-tight">{station.stationName}</h3>
+            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 tracking-tight">{station.stationName}</h3>
             {station.roleHint && (
-              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest bg-slate-100 px-1.5 py-0.5 rounded">
+              <span className="text-[9px] font-bold text-slate-500 dark:text-slate-300 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
                 {station.roleHint}
               </span>
             )}
@@ -1106,12 +1255,34 @@ function RollupStationRow({ station, idealOnly }: { station: AnnualRollupStation
             </div>
           )}
 
-          <div className="p-3 rounded-lg bg-slate-50/60 border border-slate-100 flex items-start gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-slate-700 leading-relaxed">{station.reasoning}</p>
+          <div className="p-3 rounded-lg bg-slate-50/60 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-700/60 flex items-start gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-300 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-slate-700 dark:text-slate-200 leading-relaxed">{station.reasoning}</p>
           </div>
         </div>
-      </div>
+        <div className="shrink-0 pt-1">
+          {expanded ? <ChevronUp className="w-4 h-4 text-slate-400 dark:text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-400 dark:text-slate-500" />}
+        </div>
+      </button>
+
+      {/* v2.6.0 — drilldown profile (Avg / Median / Peak / Valley FT & PT)
+          for the standalone (no-group) station rollup. Same MonthlyDemandProfile
+          component as inside RollupGroupRow so behaviour stays consistent. */}
+      {expanded && (
+        <div className="px-5 pb-5 -mt-2">
+          <div className="ms-14 ps-4 border-s-2 border-slate-200 dark:border-slate-700/60">
+            <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">
+              {t('workforce.headcount.profile.title')}
+            </p>
+            <MonthlyDemandProfile
+              monthlyFTE={station.monthlyFTE}
+              monthlyPartTime={station.monthlyPartTime}
+              recommendedFTE={station.recommendedFTE}
+              recommendedPartTime={station.recommendedPartTime}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
