@@ -156,7 +156,7 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
               }}
             />
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">OT Hourly Rate (Derived)</label>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('modal.employee.field.otHourlyRate')}</label>
               <div className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded text-sm font-mono text-slate-500 shadow-sm flex justify-between items-center">
                  <span>{formData.baseHourlyRate.toLocaleString()} IQD</span>
                  <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black tracking-widest">AUTO: (SALARY / {monthlyHoursDivisor(formData, config)})</span>
@@ -178,8 +178,8 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
               </select>
               <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
                 {formData.fixedRestDay === 0
-                  ? 'Auto-scheduler will rotate this person\'s rest day across the week to cover weekends and peak days.'
-                  : 'This person is always off on the selected day. Use Auto-Rotate to free up weekend coverage.'}
+                  ? t('modal.employee.rest.help.rotate')
+                  : t('modal.employee.rest.help.fixed')}
               </p>
             </div>
             <div className="space-y-2">
@@ -194,8 +194,8 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
               </select>
               <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
                 {formData.category === 'Driver'
-                  ? 'Drivers follow the transport-worker provisions: 9h daily / 56h weekly cap, 4.5h continuous-driving cap, 11h min daily rest.'
-                  : 'Standard staff follow Art. 67-74: 8h daily / 48h weekly cap, 11h min rest between shifts.'}
+                  ? t('modal.employee.cat.help.driver')
+                  : t('modal.employee.cat.help.standard')}
               </p>
             </div>
             <div className="space-y-2">
@@ -233,7 +233,7 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
                   {st.name}
                 </button>
               ))}
-              {stations.length === 0 && <p className="text-[10px] text-slate-400 font-medium col-span-3">No stations defined in Layout tab yet.</p>}
+              {stations.length === 0 && <p className="text-[10px] text-slate-400 font-medium col-span-3">{t('modal.employee.stations.empty')}</p>}
             </div>
           </div>
 
@@ -261,7 +261,7 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
                     </button>
                   );
                 })}
-                {workShifts.length === 0 && <p className="text-[10px] text-slate-400">No work shifts defined yet.</p>}
+                {workShifts.length === 0 && <p className="text-[10px] text-slate-400">{t('modal.employee.shifts.empty')}</p>}
               </div>
             </div>
             <div className="space-y-2">
@@ -317,7 +317,7 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
               className="w-full p-4 bg-white border border-slate-200 rounded text-sm min-h-[100px] focus:ring-1 focus:ring-blue-500 outline-none"
               value={formData.notes}
               onChange={e => setFormData({...formData, notes: e.target.value})}
-              placeholder="Enter compliance notes, performance context, or equipment requirements..."
+              placeholder={t('modal.employee.notes.placeholder')}
             />
           </div>
         </div>

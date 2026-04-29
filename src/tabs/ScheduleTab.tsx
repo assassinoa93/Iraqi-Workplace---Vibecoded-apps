@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Search, MousePointer2, Sparkles, Hash, AlertTriangle, X, Wrench, Wand2, Keyboard, Undo2, AlertOctagon, Printer } from 'lucide-react';
-import { format, isWeekend } from 'date-fns';
+import { format } from 'date-fns';
 import { List, type RowComponentProps } from 'react-window';
 import { Employee, Shift, PublicHoliday, Config, Schedule } from '../types';
 import { cn } from '../lib/utils';
@@ -42,6 +42,13 @@ interface ScheduleTabProps {
   onUndoCell?: () => void;
   cellUndoDepth?: number;
   onRunAuto: (mode?: 'fresh' | 'preserve') => void;
+  // v2.1.4 — auto-scheduler needs at least one employee AND one station
+  // to have a chance of producing useful output. Pre-2.1.4 the buttons
+  // fired regardless and either threw or surfaced an empty schedule with
+  // a confusing info modal. App.tsx passes the precomputed flag so
+  // ScheduleTab doesn't need a stations[] prop just to count it.
+  canRunAuto: boolean;
+  runAutoDisabledReason?: string;
   // Cells (`${empId}:${day}` keys) the user just swapped via the coverage
   // hint toast. The grid renders these with a brief pulsing highlight so the
   // user sees what moved. Empty set = no recent changes; the cells render
@@ -148,6 +155,7 @@ export function ScheduleTab({
   scheduleRoleFilter, setScheduleRoleFilter, rosterRoles,
   scheduleUndoStack, prevMonth, nextMonth, onCellClick, onCellRangeFill,
   onUndo, onUndoCell, cellUndoDepth = 0, onRunAuto,
+  canRunAuto, runAutoDisabledReason,
   paintWarnings, onDismissPaintWarnings, staleness, recentlyChangedCells,
 }: ScheduleTabProps) {
   const { t } = useI18n();
@@ -467,8 +475,9 @@ export function ScheduleTab({
 
           <button
             onClick={() => onRunAuto('preserve')}
-            title={t('action.runAutoSchedulePreserve.tooltip')}
-            className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg active:scale-95"
+            disabled={!canRunAuto}
+            title={canRunAuto ? t('action.runAutoSchedulePreserve.tooltip') : (runAutoDisabledReason || '')}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
           >
             <Wand2 className="w-4 h-4" />
             {t('action.runAutoSchedulePreserve')}
@@ -476,7 +485,9 @@ export function ScheduleTab({
 
           <button
             onClick={() => onRunAuto('fresh')}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95"
+            disabled={!canRunAuto}
+            title={canRunAuto ? undefined : (runAutoDisabledReason || '')}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
           >
             <Sparkles className="w-4 h-4" />
             {t('action.runAutoSchedule')}
@@ -605,7 +616,11 @@ export function ScheduleTab({
                 const holiday = holidays.find(h => h.date === dateStr);
                 const isHoli = !!holiday;
                 const isToday = format(new Date(), 'yyyy-MM-dd') === dateStr;
-                const weekendDay = isWeekend(date);
+                // v2.1.4 — Iraqi weekend is Fri/Sat, not the date-fns default
+                // Sat/Sun. Matches PrintScheduleView so on-screen and printed
+                // calendars agree. JS `getDay()` returns 0=Sun … 5=Fri, 6=Sat.
+                const dow = date.getDay();
+                const weekendDay = dow === 5 || dow === 6;
                 return (
                   <div
                     key={d}

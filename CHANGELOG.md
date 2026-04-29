@@ -2,6 +2,29 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v2.1.4 — 2026-04-29
+
+**Audit follow-up.** A wider review of v2.1.3 surfaced seven items worth shipping in their own batch — one data-loss bug, one consistency bug, two UX defaults that read as broken, and an i18n sweep across five surfaces.
+
+**Real bugs**
+- **Station groups never persisted.** The kanban groups (Cashier Counters / Game Machines / Vehicles + any user-created) lived only in memory pre-2.1.4. Every reload re-seeded `INITIAL_STATION_GROUPS` for the default company (silently overwriting user renames / recolours / new groups), and custom companies always started with an empty kanban. Backups also lacked them. The server's `COMPANY_DOMAINS` set now includes `stationGroups` (with full audit-log diff so add/modify/remove are recorded the same way `stations` are), and all three client save paths — auto-save (`App.tsx:286-339`), Quit-app last-sync (`:921-961`), `exportBackup` (`:973-1003`) — now carry the namespaced groups dictionary.
+- **Schedule grid weekend was Sat/Sun, not Fri/Sat.** [ScheduleTab.tsx:608](src/tabs/ScheduleTab.tsx#L608) used date-fns `isWeekend` (locale-naïve, defaults to Sat/Sun); the print view at [PrintScheduleView.tsx:39-40](src/components/PrintScheduleView.tsx#L39) already had Fri/Sat hardcoded for the Iraqi weekend. Same release, two different weekends. Schedule grid now matches the print view.
+- **StaffingAdvisoryCard active-tab rendered uncoloured.** [StaffingAdvisoryCard.tsx:73](src/components/StaffingAdvisoryCard.tsx#L73) built `bg-white text-${tone}-700 border-${tone}-500` via template-literal interpolation, which Tailwind v4's source scan can't see — so the active mode tab dropped its tone tint and looked the same as inactive tabs. Switched to a static class lookup keyed on `tone`. (The other class-string sites flagged in the audit turned out to be using guarded `&&` literal strings, which Tailwind detects fine — no changes needed there.)
+- **Sim panel OT Pay used the pre-v2.1.1 always-2× holiday math.** The v2.1.1 hotfix routed PayrollTab + DashboardTab through `computeHolidayPay` for the Art. 74 either-or model, but the simulation delta path at `App.tsx:1414-1444` (live `otSummary`) and `:1776-1804` (baseline `simMetrics`) was missed. Sim runs reported inflated OT pay that contradicted every other tab whenever a comp day was granted. Both now route through `computeHolidayPay` + `computeWorkedHours` so the totals match.
+
+**UX**
+- **BulkAssignModal default shift.** Pre-2.1.4 the modal initialised to `shifts[0]?.code` — for the seeded shift list, OFF is first, so a one-click apply assigned OFF for the whole month to every selected employee. Now defaults to the first `isWork` shift.
+- **Run Auto-Schedule disabled when impossible.** The Auto-Schedule and Optimal buttons in the Schedule tab fired regardless of whether the roster had any employees or whether any stations were defined; the result was either a throw or an empty schedule with a confusing info modal. Both buttons now disable with a hint tooltip ("Add at least one employee in the Roster tab…" / "Define at least one station in the Stations / Assets tab…") when the run can't possibly produce useful output.
+
+**i18n**
+- **EmployeeModal hardcoded English.** Three helper `<p>`s under Rest Day / Personnel Category, the Stations + Work-shifts empty states, the "OT Hourly Rate (Derived)" label, and the notes textarea placeholder were all English-only. Now route through new keys (`modal.employee.rest.help.*`, `modal.employee.cat.help.*`, `modal.employee.stations.empty`, `modal.employee.shifts.empty`, `modal.employee.field.otHourlyRate`, `modal.employee.notes.placeholder`).
+- **ShiftModal hardcoded English.** Almost every label (Code / Display Name / Start / End / Work Hours / Break / Description) plus the two switch labels (Hazardous / Counts as Work) plus the "Warning: shift outside business hours" banner stayed English in Arabic UI. Now route through new `modal.shift.field.*` and `modal.shift.toggle.*` keys.
+- **AuditLogTab `DOMAIN_LABEL` + "All" + "change(s)".** The chip labels and grouping headers stayed English on a sensitive tab. Pivoted to a `DOMAIN_LABEL_KEY` map of i18n keys; new `audit.domain.*` keys (incl. `stationGroups`); plural-aware `audit.changes.one` / `audit.changes.many`; `audit.filter.all` for the All chip.
+- **SettingsTab peak-day chips.** Hardcoded `['Sun','Mon','Tue','Wed','Thu','Fri','Sat']` array replaced with `common.day.short.*` keys.
+- **WorkforcePlanningTab month abbreviations.** Hardcoded `['Jan','Feb','Mar',…]` for the on-screen rollup peak-pills replaced with `common.month.short.*` keys. The PDF export keeps an English `MONTH_NAMES_PDF` constant since the document is typically shared regardless of UI locale.
+
+**Tests** — 108 passing, no test changes (the bug fixes are either trivially correct or covered by manual UX verification: persistence touches the I/O layer; weekend shading is a one-line const; sim OT now reuses the holidayCompPay test surface).
+
 ## v2.1.3 — 2026-04-29
 
 **Cleanup batch.** The deferred items from the v2.1.2 audit — one real bug, one performance win, two UX upgrades.

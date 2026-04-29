@@ -65,11 +65,11 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v2.1.3)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-2.1.3.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v2.1.4)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-2.1.4.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.1.3.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.1.4.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -77,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.1.3…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.1.4…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -218,6 +218,20 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v2.1.4
+
+Audit follow-up: bug fixes, sim/payroll consistency, and a sweep of i18n gaps the wider review surfaced.
+
+| Area | Change |
+|------|--------|
+| **Station groups now persist** | The kanban groups (Cashier Counters / Game Machines / Vehicles + any user-created) were never written to disk pre-2.1.4. Renames, recolours, and new groups silently reverted on every reload; backups also lacked them. Server's `COMPANY_DOMAINS` now includes `stationGroups` (with audit-log diff support), and all three client save paths (auto-save, quit-app save, exportBackup) carry it. |
+| **Iraqi weekend in Schedule grid** | Pre-2.1.4 the on-screen calendar shaded Sat/Sun (date-fns default) while the print view correctly shaded Fri/Sat. Same release, two different weekends. Schedule grid now matches the print view: Fri/Sat shaded as weekend, red day numerals and slate background. |
+| **Sim panel OT pay matches the rest of the app** | The simulation delta panel's "OT Pay" metric still used pre-v2.1.1 always-2× holiday math, contradicting PayrollTab + DashboardTab whenever a comp day was granted. Both the live `otSummary` and the baseline `simMetrics` now route through `computeHolidayPay` and `computeWorkedHours` — sim numbers agree with payroll for the same data. |
+| **StaffingAdvisoryCard active-tab tint** | Mode-tab `bg-white text-${tone}-700 border-${tone}-500` template-literal class strings never reached the Tailwind v4 source scan, so the active mode was rendered uncoloured. Switched to a static class lookup keyed on `tone`. |
+| **Bulk Assign default** | Pre-2.1.4 the modal defaulted to whichever shift was first in `shifts[]` — for the seeded list, that's OFF. One-click apply assigned OFF for the whole month to every selected employee. Now defaults to the first `isWork` shift. |
+| **Run Auto-Schedule disabled when impossible** | The Auto-Schedule and Optimal buttons now disable (with a clear hint tooltip) when the roster has no employees, no stations, or both. Pre-2.1.4 they fired regardless and either threw or surfaced an empty schedule with a confusing info modal. |
+| **i18n sweep** | Five hardcoded-English spots the wider review caught — EmployeeModal helper text + empty states + textarea placeholder + "OT Hourly Rate (Derived)" label, ShiftModal labels and warning, AuditLogTab `DOMAIN_LABEL` + "All" + "change(s)", SettingsTab peak-day chips, WorkforcePlanningTab on-screen month abbreviations — all routed through the i18n dictionary. The PDF export keeps English month abbreviations since the document is typically shared regardless of UI locale. |
 
 ## 📦 What's new in v2.1.3
 

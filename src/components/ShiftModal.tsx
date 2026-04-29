@@ -73,39 +73,39 @@ export function ShiftModal({ isOpen, onClose, onSave, shift, config }: ShiftModa
 
         <div className="p-8 space-y-6">
           <div className="grid grid-cols-2 gap-4">
-            <SettingField label="Shift Code (e.g. FS)" value={formData.code} onChange={v => setFormData({...formData, code: v})} />
-            <SettingField label="Display Name" value={formData.name} onChange={v => setFormData({...formData, name: v})} />
-            <SettingField label="Start Time" type="time" value={formData.start} onChange={v => setFormData({...formData, start: v})} />
-            <SettingField label="End Time" type="time" value={formData.end} onChange={v => setFormData({...formData, end: v})} />
-            <SettingField label="Work Hours (Auto)" type="number" value={formData.durationHrs} onChange={v => setFormData({...formData, durationHrs: Math.max(0, parseFloat(v) || 0)})} />
-            <SettingField label="Break (Min)" type="number" value={formData.breakMin} onChange={v => setFormData({...formData, breakMin: Math.max(0, parseInt(v) || 0)})} />
+            <SettingField label={t('modal.shift.field.code')} value={formData.code} onChange={v => setFormData({...formData, code: v})} />
+            <SettingField label={t('modal.shift.field.name')} value={formData.name} onChange={v => setFormData({...formData, name: v})} />
+            <SettingField label={t('modal.shift.field.start')} type="time" value={formData.start} onChange={v => setFormData({...formData, start: v})} />
+            <SettingField label={t('modal.shift.field.end')} type="time" value={formData.end} onChange={v => setFormData({...formData, end: v})} />
+            <SettingField label={t('modal.shift.field.duration')} type="number" value={formData.durationHrs} onChange={v => setFormData({...formData, durationHrs: Math.max(0, parseFloat(v) || 0)})} />
+            <SettingField label={t('modal.shift.field.break')} type="number" value={formData.breakMin} onChange={v => setFormData({...formData, breakMin: Math.max(0, parseInt(v) || 0)})} />
           </div>
 
           {isOutside && formData.isWork && (
             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700">
               <AlertCircle className="w-4 h-4" />
-              <p className="text-[10px] font-bold uppercase tracking-tight">Warning: Shift falls outside business operating hours ({config.shopOpeningTime} - {config.shopClosingTime})</p>
+              <p className="text-[10px] font-bold uppercase tracking-tight">{t('modal.shift.warning.outsideHours', { open: config.shopOpeningTime, close: config.shopClosingTime })}</p>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
              <label className="flex items-center gap-2 cursor-pointer">
-                <Switch checked={formData.isHazardous} onChange={v => setFormData({...formData, isHazardous: v})} tone="rose" aria-label="Hazardous Shift" />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">Hazardous Shift</span>
+                <Switch checked={formData.isHazardous} onChange={v => setFormData({...formData, isHazardous: v})} tone="rose" aria-label={t('modal.shift.toggle.hazardous')} />
+                <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.shift.toggle.hazardous')}</span>
              </label>
              <label className="flex items-center gap-2 cursor-pointer">
-                <Switch checked={formData.isWork} onChange={v => setFormData({...formData, isWork: v})} tone="emerald" aria-label="Counts as Work" />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">Counts as Work</span>
+                <Switch checked={formData.isWork} onChange={v => setFormData({...formData, isWork: v})} tone="emerald" aria-label={t('modal.shift.toggle.work')} />
+                <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.shift.toggle.work')}</span>
              </label>
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Shift Description</label>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('modal.shift.field.description')}</label>
             <textarea
               className="w-full p-3 bg-white border border-slate-200 rounded text-xs min-h-[60px] focus:ring-1 focus:ring-blue-500 outline-none"
               value={formData.description}
               onChange={e => setFormData({...formData, description: e.target.value})}
-              placeholder="Instructions for supervisors or legal context..."
+              placeholder={t('modal.shift.field.description.placeholder')}
             />
           </div>
         </div>

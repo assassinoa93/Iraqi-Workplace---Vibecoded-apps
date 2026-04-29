@@ -14,15 +14,19 @@ export interface AuditEntry {
   summary: string;
 }
 
-const DOMAIN_LABEL: Record<string, string> = {
-  employees: 'Employee',
-  shifts: 'Shift',
-  stations: 'Station / Asset',
-  holidays: 'Holiday',
-  config: 'Config',
-  schedule: 'Schedule',
-  companies: 'Company',
-  system: 'System',
+// v2.1.4 — domain → i18n key map. Pre-2.1.4 the labels were hardcoded
+// English; the table read in Arabic UI mixed RTL surroundings with
+// English chips. Added stationGroups now that those persist (v2.1.4 B1).
+const DOMAIN_LABEL_KEY: Record<string, string> = {
+  employees: 'audit.domain.employees',
+  shifts: 'audit.domain.shifts',
+  stations: 'audit.domain.stations',
+  stationGroups: 'audit.domain.stationGroups',
+  holidays: 'audit.domain.holidays',
+  config: 'audit.domain.config',
+  schedule: 'audit.domain.schedule',
+  companies: 'audit.domain.companies',
+  system: 'audit.domain.system',
 };
 
 const opIcon = (op: AuditEntry['op']) => {
@@ -179,7 +183,7 @@ export function AuditLogTab() {
             filterDomain === 'all' ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-100"
           )}
         >
-          All ({entries.length})
+          {t('audit.filter.all')} ({entries.length})
         </button>
         {domains.map(d => (
           <button
@@ -190,7 +194,7 @@ export function AuditLogTab() {
               filterDomain === d ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-100"
             )}
           >
-            {DOMAIN_LABEL[d] || d} ({entries.filter(e => e.domain === d).length})
+            {DOMAIN_LABEL_KEY[d] ? t(DOMAIN_LABEL_KEY[d]) : d} ({entries.filter(e => e.domain === d).length})
           </button>
         ))}
       </div>
@@ -207,7 +211,7 @@ export function AuditLogTab() {
         {grouped.map(([day, dayEntries]) => (
           <div key={day} className="space-y-2">
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest sticky top-0 bg-[#F3F4F6] py-1">
-              {format(new Date(day), 'EEEE, MMMM d, yyyy')} <span className="text-slate-300">· {dayEntries.length} change{dayEntries.length === 1 ? '' : 's'}</span>
+              {format(new Date(day), 'EEEE, MMMM d, yyyy')} <span className="text-slate-300">· {dayEntries.length === 1 ? t('audit.changes.one') : t('audit.changes.many', { count: dayEntries.length })}</span>
             </p>
             <div className="space-y-1.5">
               {dayEntries.map((e, i) => (
@@ -219,7 +223,7 @@ export function AuditLogTab() {
                     <div className="flex items-baseline gap-2 flex-wrap">
                       <p className="text-xs font-bold text-slate-800">{e.summary}</p>
                       <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[9px] font-mono uppercase tracking-widest">
-                        {DOMAIN_LABEL[e.domain] || e.domain}
+                        {DOMAIN_LABEL_KEY[e.domain] ? t(DOMAIN_LABEL_KEY[e.domain]) : e.domain}
                       </span>
                     </div>
                     {e.targetId && (

@@ -68,10 +68,15 @@ export function StaffingAdvisoryCard({ advisory, currentOTHours, currentOTPay, s
               key={m.key}
               onClick={() => setActiveMode(m.key)}
               className={cn(
+                // v2.1.4 — switched from template-literal class strings to a
+                // static lookup. Tailwind v4's source scan can't see
+                // `bg-white text-${tone}-700`-style interpolations, so the
+                // active-tab tint silently rendered as default slate.
                 "flex-1 px-4 py-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all border-b-2",
-                isActive
-                  ? `bg-white text-${m.tone}-700 border-${m.tone}-500`
-                  : "text-slate-400 border-transparent hover:text-slate-700 hover:bg-white/50"
+                isActive && m.tone === 'emerald' && "bg-white text-emerald-700 border-emerald-500",
+                isActive && m.tone === 'blue' && "bg-white text-blue-700 border-blue-500",
+                isActive && m.tone === 'indigo' && "bg-white text-indigo-700 border-indigo-500",
+                !isActive && "text-slate-400 border-transparent hover:text-slate-700 hover:bg-white/50",
               )}
             >
               <Icon className="w-3.5 h-3.5" />

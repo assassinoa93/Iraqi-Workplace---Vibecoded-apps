@@ -30,7 +30,12 @@ export function BulkAssignModal({ isOpen, onClose, selectedCount, shifts, daysIn
 
   useEffect(() => {
     if (isOpen) {
-      setShiftCode(shifts[0]?.code ?? '');
+      // v2.1.4 — default to the first WORK shift, not whatever happens to
+      // be index 0. The seeded shift list starts with OFF, so a one-click
+      // apply previously assigned OFF for the whole month to every
+      // selected employee, which is never the supervisor's intent.
+      const firstWork = shifts.find(s => s.isWork)?.code ?? shifts[0]?.code ?? '';
+      setShiftCode(firstWork);
       setFromDay(1);
       setToDay(daysInMonth);
       setOverwrite(false);

@@ -12,7 +12,17 @@ interface SettingsTabProps {
   onFactoryReset: () => void;
 }
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// v2.1.4 — short DOW labels via i18n. Pre-2.1.4 these were hardcoded
+// English; the chips stayed English even with the UI in Arabic.
+const DAY_KEYS = [
+  'common.day.short.sunday',
+  'common.day.short.monday',
+  'common.day.short.tuesday',
+  'common.day.short.wednesday',
+  'common.day.short.thursday',
+  'common.day.short.friday',
+  'common.day.short.saturday',
+];
 
 export function SettingsTab({ config, setConfig, onExportBackup, onImportBackup, onFactoryReset }: SettingsTabProps) {
   const { t } = useI18n();
@@ -27,12 +37,12 @@ export function SettingsTab({ config, setConfig, onExportBackup, onImportBackup,
         <div className="space-y-4">
           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('settings.peakDays')}</label>
           <div className="flex gap-2 flex-wrap">
-            {DAYS.map((day, idx) => {
+            {DAY_KEYS.map((dayKey, idx) => {
               const dayNum = idx + 1;
               const isSelected = config.peakDays.includes(dayNum);
               return (
                 <button
-                  key={day}
+                  key={dayKey}
                   onClick={() => {
                     setConfig(prev => ({
                       ...prev,
@@ -48,7 +58,7 @@ export function SettingsTab({ config, setConfig, onExportBackup, onImportBackup,
                       : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
                   )}
                 >
-                  {day}
+                  {t(dayKey)}
                 </button>
               );
             })}

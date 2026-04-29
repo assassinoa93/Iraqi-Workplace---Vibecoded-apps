@@ -465,7 +465,7 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
             )}
             <KpiBlock
               label={t('workforce.rollup.peakMonth')}
-              value={MONTH_NAMES[group.peakMonthIndex - 1]}
+              value={t(MONTH_NAME_KEYS[group.peakMonthIndex - 1])}
               hint={`${group.peakMonthFTE} FTE`}
             />
           </div>
@@ -488,7 +488,7 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
               <div key={s.stationId} className="bg-white rounded-lg border border-slate-100 p-3 flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-slate-800 truncate">{s.stationName}</p>
-                  <p className="text-[10px] text-slate-500 font-mono">{Math.round(s.annualRequiredHours).toLocaleString()}h/yr · peak {MONTH_NAMES[s.peakMonthIndex - 1]}</p>
+                  <p className="text-[10px] text-slate-500 font-mono">{Math.round(s.annualRequiredHours).toLocaleString()}h/yr · peak {t(MONTH_NAME_KEYS[s.peakMonthIndex - 1])}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-sm font-black text-emerald-700">{s.recommendedFTE} FTE</p>
@@ -555,7 +555,7 @@ function RollupStationRow({ station, idealOnly }: { station: AnnualRollupStation
             )}
             <KpiBlock
               label={t('workforce.rollup.peakMonth')}
-              value={MONTH_NAMES[station.peakMonthIndex - 1]}
+              value={t(MONTH_NAME_KEYS[station.peakMonthIndex - 1])}
               hint={`${station.peakMonthFTE} FTE`}
             />
           </div>
@@ -636,7 +636,16 @@ function KpiBlock({ label, value, tone = 'neutral', hint }: { label: string; val
   );
 }
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// v2.1.4 — i18n keys for short month names. The on-screen rollup peak-pills
+// resolve via `t()` inside the components; the PDF export keeps an English
+// constant since it's a shareable document the user typically wants in
+// English regardless of UI locale.
+const MONTH_NAME_KEYS = [
+  'common.month.short.jan', 'common.month.short.feb', 'common.month.short.mar', 'common.month.short.apr',
+  'common.month.short.may', 'common.month.short.jun', 'common.month.short.jul', 'common.month.short.aug',
+  'common.month.short.sep', 'common.month.short.oct', 'common.month.short.nov', 'common.month.short.dec',
+];
+const MONTH_NAMES_PDF = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // PDF export. Renders the current rollup + KPI strip into a portrait A4
 // document and triggers a download. Uses jspdf + jspdf-autotable (already
@@ -704,7 +713,7 @@ async function exportWorkforcePlanToPDF(args: {
       s.recommendedPartTime.toString(),
       `${s.delta > 0 ? '+' : ''}${s.delta}`,
       s.action.toUpperCase(),
-      MONTH_NAMES[s.peakMonthIndex - 1],
+      MONTH_NAMES_PDF[s.peakMonthIndex - 1],
       s.reasoning,
     ]),
     headStyles: { fillColor: [15, 23, 42], fontSize: 9 },

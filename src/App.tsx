@@ -41,7 +41,8 @@ import {
   DEFAULT_CONFIG, INITIAL_COMPANIES, DEFAULT_COMPANY_ID,
 } from './lib/initialData';
 import { APP_VERSION } from './lib/appMeta';
-import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap } from './lib/payroll';
+import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap, computeWorkedHours } from './lib/payroll';
+import { computeHolidayPay } from './lib/holidayCompPay';
 import { parseHour, getOperatingHoursForDow } from './lib/time';
 import { cn } from './lib/utils';
 import { runAutoScheduler } from './lib/autoScheduler';
@@ -290,6 +291,7 @@ export default function App() {
     const shiftsByCo: Record<string, Shift[]> = {};
     const holidaysByCo: Record<string, PublicHoliday[]> = {};
     const stationsByCo: Record<string, Station[]> = {};
+    const stationGroupsByCo: Record<string, StationGroup[]> = {};
     const configByCo: Record<string, Config> = {};
     const allSchedulesByCo: Record<string, Record<string, Schedule>> = {};
     for (const id of Object.keys(companyData)) {
@@ -298,6 +300,7 @@ export default function App() {
       shiftsByCo[id] = cd.shifts;
       holidaysByCo[id] = cd.holidays;
       stationsByCo[id] = cd.stations;
+      stationGroupsByCo[id] = cd.stationGroups ?? [];
       configByCo[id] = cd.config;
       allSchedulesByCo[id] = cd.allSchedules;
     }
@@ -307,6 +310,7 @@ export default function App() {
       shifts: shiftsByCo,
       holidays: holidaysByCo,
       stations: stationsByCo,
+      stationGroups: stationGroupsByCo,
       config: configByCo,
       allSchedules: allSchedulesByCo,
     };
@@ -929,6 +933,7 @@ export default function App() {
         const shiftsByCo: Record<string, Shift[]> = {};
         const holidaysByCo: Record<string, PublicHoliday[]> = {};
         const stationsByCo: Record<string, Station[]> = {};
+        const stationGroupsByCo: Record<string, StationGroup[]> = {};
         const configByCo: Record<string, Config> = {};
         const allSchedulesByCo: Record<string, Record<string, Schedule>> = {};
         for (const id of Object.keys(companyData)) {
@@ -937,13 +942,14 @@ export default function App() {
           shiftsByCo[id] = cd.shifts;
           holidaysByCo[id] = cd.holidays;
           stationsByCo[id] = cd.stations;
+          stationGroupsByCo[id] = cd.stationGroups ?? [];
           configByCo[id] = cd.config;
           allSchedulesByCo[id] = cd.allSchedules;
         }
         const body = {
           companies: { companies, activeCompanyId },
           employees: employeesByCo, shifts: shiftsByCo, holidays: holidaysByCo,
-          stations: stationsByCo, config: configByCo, allSchedules: allSchedulesByCo,
+          stations: stationsByCo, stationGroups: stationGroupsByCo, config: configByCo, allSchedules: allSchedulesByCo,
         };
         fetch('/api/save', {
           method: 'POST',
@@ -976,6 +982,7 @@ export default function App() {
     const shiftsByCo: Record<string, Shift[]> = {};
     const holidaysByCo: Record<string, PublicHoliday[]> = {};
     const stationsByCo: Record<string, Station[]> = {};
+    const stationGroupsByCo: Record<string, StationGroup[]> = {};
     const configByCo: Record<string, Config> = {};
     const allSchedulesByCo: Record<string, Record<string, Schedule>> = {};
     for (const id of Object.keys(companyData)) {
@@ -984,13 +991,15 @@ export default function App() {
       shiftsByCo[id] = cd.shifts;
       holidaysByCo[id] = cd.holidays;
       stationsByCo[id] = cd.stations;
+      stationGroupsByCo[id] = cd.stationGroups ?? [];
       configByCo[id] = cd.config;
       allSchedulesByCo[id] = cd.allSchedules;
     }
     const data = {
       companies: { companies, activeCompanyId },
       employees: employeesByCo, shifts: shiftsByCo, holidays: holidaysByCo,
-      stations: stationsByCo, config: configByCo, allSchedules: allSchedulesByCo,
+      stations: stationsByCo, stationGroups: stationGroupsByCo,
+      config: configByCo, allSchedules: allSchedulesByCo,
       version: APP_VERSION,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1405,35 +1414,30 @@ export default function App() {
 
   // Total OT hours and pay for the active schedule. Surfaced in the simulation
   // delta panel and the Dashboard FTE forecast.
+  // v2.1.4 — routed through `computeHolidayPay` so the Art. 74 either-or
+  // model is honoured here too. Pre-2.1.4 the simulation panel always
+  // billed holiday hours at 2× regardless of comp-day grant, contradicting
+  // PayrollTab + DashboardTab which were fixed in v2.1.1. Same fix applies
+  // to `simMetrics` baseline below. `computeWorkedHours` also subtracts
+  // legacy leave-overlap days so totalWorkHours matches PayrollTab.
   const otSummary = useMemo(() => {
     const cap = monthlyHourCap(config);
     const otRateDay = config.otRateDay ?? 1.5;
-    const otRateNight = config.otRateNight ?? 2.0;
-    const holidayDateSet = new Set(holidays.map(h => h.date));
-    const shiftByCode = new Map(shifts.map(s => [s.code, s]));
     let totalOTHours = 0;
     let totalOTPay = 0;
     let totalWorkHours = 0;
     for (const emp of employees) {
-      const empSched = schedule[emp.empId] || {};
-      let totalHrs = 0;
-      let holiHrs = 0;
-      for (const [dayStr, entry] of Object.entries(empSched)) {
-        const dateStr = format(new Date(config.year, config.month - 1, parseInt(dayStr)), 'yyyy-MM-dd');
-        const shift = shiftByCode.get(entry.shiftCode);
-        if (!shift?.isWork) continue;
-        totalHrs += shift.durationHrs;
-        if (holidayDateSet.has(dateStr)) holiHrs += shift.durationHrs;
-      }
+      const totalHrs = computeWorkedHours(emp, schedule, shifts, config);
       totalWorkHours += totalHrs;
       const hourly = baseHourlyRate(emp, config);
-      const stdOT = Math.max(0, totalHrs - cap - holiHrs);
+      const breakdown = computeHolidayPay(emp, schedule, shifts, holidays, config, hourly, allSchedules);
+      const stdOT = Math.max(0, totalHrs - cap - breakdown.premiumHolidayHours);
       totalOTHours += Math.max(0, totalHrs - cap);
-      totalOTPay += stdOT * hourly * otRateDay + holiHrs * hourly * otRateNight;
+      totalOTPay += stdOT * hourly * otRateDay + breakdown.premiumPay;
     }
     const potentialHires = Math.ceil(totalOTHours / Math.max(1, cap));
     return { totalOTHours, totalOTPay, potentialHires, totalWorkHours };
-  }, [employees, schedule, shifts, holidays, config]);
+  }, [employees, schedule, shifts, holidays, config, allSchedules]);
 
   // Run coverage-gap detection after a paint that may have removed a station
   // assignment. If a gap is found, queue up swap suggestions for the toast.
@@ -1767,32 +1771,28 @@ export default function App() {
 
   // Compute baseline metrics for the sim delta panel. Mirrors the live OT
   // summary + coverage but pulled from the frozen baseline snapshot.
+  // v2.1.4 — same `computeHolidayPay` routing as the live `otSummary` so
+  // the sim panel's "OT Pay" baseline number matches PayrollTab/Dashboard
+  // for the same data, including comp-day grants.
   const simMetrics: SimDeltaMetric[] = useMemo(() => {
     if (!simMode || !simBaseline) return [];
     const baselineActive = simBaseline.companyData[simBaseline.activeCompanyId];
     if (!baselineActive) return [];
     const baseScheduleKey = `scheduler_schedule_${baselineActive.config.year}_${baselineActive.config.month}`;
     const baseSchedule = baselineActive.allSchedules[baseScheduleKey] ?? {};
-    const baseShiftByCode = new Map(baselineActive.shifts.map(s => [s.code, s]));
-    const baseHolidayDates = new Set(baselineActive.holidays.map(h => h.date));
     const baseCap = monthlyHourCap(baselineActive.config);
     let baseOTHrs = 0;
     let baseOTPay = 0;
     for (const emp of baselineActive.employees) {
-      const empSched = baseSchedule[emp.empId] || {};
-      let totalHrs = 0;
-      let holiHrs = 0;
-      for (const [dayStr, entry] of Object.entries(empSched)) {
-        const dateStr = format(new Date(baselineActive.config.year, baselineActive.config.month - 1, parseInt(dayStr)), 'yyyy-MM-dd');
-        const shift = baseShiftByCode.get(entry.shiftCode);
-        if (!shift?.isWork) continue;
-        totalHrs += shift.durationHrs;
-        if (baseHolidayDates.has(dateStr)) holiHrs += shift.durationHrs;
-      }
+      const totalHrs = computeWorkedHours(emp, baseSchedule, baselineActive.shifts, baselineActive.config);
       const hourly = baseHourlyRate(emp, baselineActive.config);
-      const stdOT = Math.max(0, totalHrs - baseCap - holiHrs);
+      const breakdown = computeHolidayPay(
+        emp, baseSchedule, baselineActive.shifts, baselineActive.holidays,
+        baselineActive.config, hourly, baselineActive.allSchedules,
+      );
+      const stdOT = Math.max(0, totalHrs - baseCap - breakdown.premiumHolidayHours);
       baseOTHrs += Math.max(0, totalHrs - baseCap);
-      baseOTPay += stdOT * hourly * (baselineActive.config.otRateDay ?? 1.5) + holiHrs * hourly * (baselineActive.config.otRateNight ?? 2.0);
+      baseOTPay += stdOT * hourly * (baselineActive.config.otRateDay ?? 1.5) + breakdown.premiumPay;
     }
     const baseViolations = ComplianceEngine
       .check(baselineActive.employees, baselineActive.shifts, baselineActive.holidays, baselineActive.config, baseSchedule, baselineActive.allSchedules)
@@ -2127,6 +2127,16 @@ export default function App() {
                 onUndoCell={undoLastCell}
                 cellUndoDepth={cellUndoStack.length}
                 onRunAuto={handleRunAutoScheduler}
+                canRunAuto={employees.length > 0 && stations.length > 0}
+                runAutoDisabledReason={
+                  employees.length === 0 && stations.length === 0
+                    ? t('schedule.runAuto.disabled.bothEmpty')
+                    : employees.length === 0
+                      ? t('schedule.runAuto.disabled.noEmployees')
+                      : stations.length === 0
+                        ? t('schedule.runAuto.disabled.noStations')
+                        : undefined
+                }
                 paintWarnings={paintWarnings}
                 onDismissPaintWarnings={() => setPaintWarnings(null)}
                 staleness={scheduleStaleness}

@@ -34,7 +34,7 @@ async function startServer() {
   // Per-company domains. Each is stored on disk as Record<companyId, T>; the
   // server migrates legacy bare arrays / objects to the namespaced shape on
   // first read. `companies.json` carries the list of companies + active id.
-  const COMPANY_DOMAINS = new Set(["employees", "shifts", "holidays", "config", "stations", "allSchedules"]);
+  const COMPANY_DOMAINS = new Set(["employees", "shifts", "holidays", "config", "stations", "stationGroups", "allSchedules"]);
   const ALLOWED_KEYS = new Set([...COMPANY_DOMAINS, "companies"]);
   const RESET_CONFIRM_TOKEN = "DELETE_ALL_DATA";
   const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
@@ -156,19 +156,21 @@ async function startServer() {
     for (const companyId of allCompanyIds) {
       const prev = prevByCo[companyId];
       const next = nextByCo[companyId];
-      if (key === "employees" || key === "shifts" || key === "stations") {
+      if (key === "employees" || key === "shifts" || key === "stations" || key === "stationGroups") {
         const idKey = key === "employees" ? "empId" : key === "shifts" ? "code" : "id";
         const labelKey = "name";
         const prevArr: any[] = Array.isArray(prev) ? prev : [];
         const nextArr: any[] = Array.isArray(next) ? next : [];
         const prevById = new Map(prevArr.map(x => [x[idKey], x]));
         const nextById = new Map(nextArr.map(x => [x[idKey], x]));
+        // Singularise the domain name for display ("station group" not "stationGroup").
+        const singular = key === "stationGroups" ? "station group" : key.slice(0, -1);
         for (const [id, item] of nextById) {
-          if (!prevById.has(id)) entries.push({ ts, domain: key, op: "add", targetId: id, label: item[labelKey], summary: `Added ${key.slice(0, -1)}: ${item[labelKey] ?? id}`, companyId });
-          else if (JSON.stringify(prevById.get(id)) !== JSON.stringify(item)) entries.push({ ts, domain: key, op: "modify", targetId: id, label: item[labelKey], summary: `Modified ${key.slice(0, -1)}: ${item[labelKey] ?? id}`, companyId });
+          if (!prevById.has(id)) entries.push({ ts, domain: key, op: "add", targetId: id, label: item[labelKey], summary: `Added ${singular}: ${item[labelKey] ?? id}`, companyId });
+          else if (JSON.stringify(prevById.get(id)) !== JSON.stringify(item)) entries.push({ ts, domain: key, op: "modify", targetId: id, label: item[labelKey], summary: `Modified ${singular}: ${item[labelKey] ?? id}`, companyId });
         }
         for (const [id, item] of prevById) {
-          if (!nextById.has(id)) entries.push({ ts, domain: key, op: "remove", targetId: id, label: item[labelKey], summary: `Removed ${key.slice(0, -1)}: ${item[labelKey] ?? id}`, companyId });
+          if (!nextById.has(id)) entries.push({ ts, domain: key, op: "remove", targetId: id, label: item[labelKey], summary: `Removed ${singular}: ${item[labelKey] ?? id}`, companyId });
         }
       } else if (key === "holidays") {
         const prevArr: any[] = Array.isArray(prev) ? prev : [];
