@@ -231,11 +231,12 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Minimise to tray instead of hiding
-  mainWindow.on('minimize', (e) => {
-    e.preventDefault();
-    mainWindow.hide();
-  });
+  // v2.2.0 — minimize lets Windows handle it natively (window stays in
+  // the taskbar). Pre-2.2.0 we intercepted the minimize event and called
+  // `hide()`, which removed the window from the taskbar entirely so a
+  // second taskbar-click sent it to the tray instead of minimizing back.
+  // The tray remains the path for FULL hiding via the close button below;
+  // tray > Open is the way to bring it back from there.
 
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) {

@@ -19,6 +19,10 @@ interface HolidayModalProps {
 }
 
 const empty = (): PublicHoliday => ({
+  // v2.2.0 — generate a stable id at create time. The id stays
+  // unchanged across date / name / compMode edits so the user can
+  // freely re-date a holiday without orphaning it.
+  id: `holi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
   date: format(new Date(), 'yyyy-MM-dd'),
   name: '',
   type: 'National',

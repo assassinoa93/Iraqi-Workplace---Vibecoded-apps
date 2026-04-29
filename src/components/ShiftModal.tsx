@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { X, AlertCircle } from 'lucide-react';
+import { X, AlertCircle, Lock } from 'lucide-react';
 import { Shift, Config } from '../types';
 import { SettingField } from './Primitives';
 import { Switch } from './ui/Switch';
 import { useI18n } from '../lib/i18n';
 import { useModalKeys } from '../lib/hooks';
 import { parseHour } from '../lib/time';
+import { isSystemShift } from '../lib/systemShifts';
+import { cn } from '../lib/utils';
 
 interface ShiftModalProps {
   isOpen: boolean;
@@ -48,6 +50,13 @@ export function ShiftModal({ isOpen, onClose, onSave, shift, config }: ShiftModa
 
   if (!isOpen) return null;
 
+  // v2.2.0 — system shifts (OFF/CP/AL/SL/MAT/PH) drive the auto-scheduler,
+  // leave system, and comp-day rotation; their `isWork` and `isHazardous`
+  // semantics MUST match the engine's expectations. The user can still
+  // edit display fields (name, description, times for OFF→non-zero edge
+  // cases) but the toggles are locked with a lock chip in place.
+  const protectedSystemShift = isSystemShift(formData.code);
+
   const shopStart = parseHour(config.shopOpeningTime || '00:00');
   const shopEnd = parseHour(config.shopClosingTime || '23:59');
   const shiftStart = parseHour(formData.start || '00:00');
@@ -88,16 +97,31 @@ export function ShiftModal({ isOpen, onClose, onSave, shift, config }: ShiftModa
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
-             <label className="flex items-center gap-2 cursor-pointer">
-                <Switch checked={formData.isHazardous} onChange={v => setFormData({...formData, isHazardous: v})} tone="rose" aria-label={t('modal.shift.toggle.hazardous')} />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.shift.toggle.hazardous')}</span>
-             </label>
-             <label className="flex items-center gap-2 cursor-pointer">
-                <Switch checked={formData.isWork} onChange={v => setFormData({...formData, isWork: v})} tone="emerald" aria-label={t('modal.shift.toggle.work')} />
-                <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.shift.toggle.work')}</span>
-             </label>
-          </div>
+          {protectedSystemShift ? (
+            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex items-start gap-3">
+              <Lock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+              <div className="space-y-2 min-w-0 flex-1">
+                <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">{t('modal.shift.systemShift.title')}</p>
+                <p className="text-[11px] text-slate-600 leading-relaxed">{t('modal.shift.systemShift.body', { code: formData.code })}</p>
+                <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500 pt-1">
+                  <span>{t('modal.shift.toggle.work')}: <span className={cn('font-bold', formData.isWork ? 'text-emerald-700' : 'text-slate-700')}>{formData.isWork ? t('shifts.status.work') : t('shifts.status.nonwork')}</span></span>
+                  <span className="text-slate-300">·</span>
+                  <span>{t('modal.shift.toggle.hazardous')}: <span className={cn('font-bold', formData.isHazardous ? 'text-rose-700' : 'text-slate-700')}>{formData.isHazardous ? t('common.yes') : t('common.no')}</span></span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+               <label className="flex items-center gap-2 cursor-pointer">
+                  <Switch checked={formData.isHazardous} onChange={v => setFormData({...formData, isHazardous: v})} tone="rose" aria-label={t('modal.shift.toggle.hazardous')} />
+                  <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.shift.toggle.hazardous')}</span>
+               </label>
+               <label className="flex items-center gap-2 cursor-pointer">
+                  <Switch checked={formData.isWork} onChange={v => setFormData({...formData, isWork: v})} tone="emerald" aria-label={t('modal.shift.toggle.work')} />
+                  <span className="text-[10px] font-bold text-slate-600 uppercase">{t('modal.shift.toggle.work')}</span>
+               </label>
+            </div>
+          )}
 
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('modal.shift.field.description')}</label>

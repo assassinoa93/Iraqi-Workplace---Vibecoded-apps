@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Edit3, Trash2, Layout, FolderPlus, Boxes, ChevronDown, X } from 'lucide-react';
+import { Plus, Edit3, Trash2, Layout, FolderPlus, ChevronDown, X } from 'lucide-react';
 import { Employee, Station, StationGroup } from '../types';
 import { Card } from '../components/Primitives';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
+import { GROUP_ICON_PALETTE, DEFAULT_GROUP_ICON, getGroupIcon } from '../lib/groupIcons';
 
 interface LayoutTabProps {
   stations: Station[];
@@ -52,10 +53,10 @@ export function LayoutTab({
     return map;
   }, [stations, stationGroups]);
 
-  const handleAddGroup = (name: string, color: string) => {
+  const handleAddGroup = (name: string, color: string, icon: string) => {
     if (!name.trim()) return;
     const id = `grp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    onSaveGroups([...stationGroups, { id, name: name.trim(), color }]);
+    onSaveGroups([...stationGroups, { id, name: name.trim(), color, icon }]);
     setCreatingGroup(false);
   };
 
@@ -137,9 +138,17 @@ export function LayoutTab({
                 className="px-4 py-3 flex items-center gap-3 border-b border-slate-200"
                 style={{ backgroundColor: `${groupColor}15`, borderTopColor: groupColor, borderTopWidth: 3 }}
               >
-                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white" style={{ backgroundColor: groupColor }}>
-                  <Boxes className="w-3.5 h-3.5" />
-                </div>
+                {!isUngrouped ? (
+                  <GroupIconButton
+                    icon={entry.group.icon}
+                    color={groupColor}
+                    onPick={(iconName) => handleUpdateGroup(entry.group.id, { icon: iconName })}
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0" style={{ backgroundColor: groupColor }}>
+                    {(() => { const Ic = getGroupIcon(undefined); return <Ic className="w-3.5 h-3.5" />; })()}
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   {editing && !isUngrouped ? (
                     <input
@@ -379,12 +388,13 @@ function StationCard({
   );
 }
 
-function NewGroupForm({ onSave, onCancel }: { onSave: (name: string, color: string) => void; onCancel: () => void }) {
+function NewGroupForm({ onSave, onCancel }: { onSave: (name: string, color: string, icon: string) => void; onCancel: () => void }) {
   const { t } = useI18n();
   const [name, setName] = useState('');
   const [color, setColor] = useState(GROUP_COLOR_PALETTE[0]);
+  const [icon, setIcon] = useState(DEFAULT_GROUP_ICON);
   return (
-    <Card className="p-4 bg-indigo-50/50 border-indigo-200">
+    <Card className="p-4 bg-indigo-50/50 border-indigo-200 space-y-3">
       <div className="flex items-center gap-3">
         <FolderPlus className="w-4 h-4 text-indigo-700 shrink-0" />
         <input
@@ -392,7 +402,7 @@ function NewGroupForm({ onSave, onCancel }: { onSave: (name: string, color: stri
           type="text"
           value={name}
           onChange={e => setName(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') onSave(name, color); if (e.key === 'Escape') onCancel(); }}
+          onKeyDown={e => { if (e.key === 'Enter') onSave(name, color, icon); if (e.key === 'Escape') onCancel(); }}
           placeholder={t('layout.group.namePlaceholder')}
           className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
         />
@@ -411,7 +421,7 @@ function NewGroupForm({ onSave, onCancel }: { onSave: (name: string, color: stri
           ))}
         </div>
         <button
-          onClick={() => onSave(name, color)}
+          onClick={() => onSave(name, color, icon)}
           disabled={!name.trim()}
           className={cn(
             "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all shrink-0",
@@ -424,6 +434,94 @@ function NewGroupForm({ onSave, onCancel }: { onSave: (name: string, color: stri
           <X className="w-4 h-4" />
         </button>
       </div>
+      {/* v2.2.0 — preset icon picker. Choosing one helps the supervisor
+          tell groups apart at a glance in the kanban + workforce-planning
+          rollups. Defaults to `boxes` so existing one-click flows keep
+          working without forcing a pick. */}
+      <div className="flex items-start gap-3">
+        <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mt-2 shrink-0 w-12">{t('layout.group.icon')}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(GROUP_ICON_PALETTE).map(([key, Ic]) => (
+            <button
+              key={key}
+              onClick={() => setIcon(key)}
+              type="button"
+              title={key}
+              className={cn(
+                'w-7 h-7 rounded-lg flex items-center justify-center transition-all',
+                icon === key ? 'text-white shadow-md' : 'bg-white text-slate-500 hover:bg-slate-100',
+              )}
+              style={icon === key ? { backgroundColor: color } : undefined}
+              aria-label={key}
+              aria-pressed={icon === key}
+            >
+              <Ic className="w-3.5 h-3.5" />
+            </button>
+          ))}
+        </div>
+      </div>
     </Card>
+  );
+}
+
+// v2.2.0 — clickable group-header icon. Renders the chosen lucide
+// component as a coloured tile; clicking opens a popover with the full
+// preset palette so the supervisor can change the icon inline without
+// digging into a separate edit modal.
+function GroupIconButton({
+  icon, color, onPick,
+}: { icon: string | undefined; color: string; onPick: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const Icon = getGroupIcon(icon);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative shrink-0">
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Change icon"
+        aria-label="Change group icon"
+        className="w-7 h-7 rounded-lg flex items-center justify-center text-white hover:opacity-90 transition-opacity"
+        style={{ backgroundColor: color }}
+      >
+        <Icon className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 start-0 z-40 w-56 bg-white rounded-xl border border-slate-200 shadow-2xl p-2">
+          <div className="grid grid-cols-5 gap-1">
+            {Object.entries(GROUP_ICON_PALETTE).map(([key, Ic]) => (
+              <button
+                key={key}
+                onClick={() => { onPick(key); setOpen(false); }}
+                type="button"
+                title={key}
+                className={cn(
+                  'w-9 h-9 rounded-lg flex items-center justify-center transition-all',
+                  (icon || 'boxes') === key ? 'text-white shadow-md' : 'bg-slate-50 text-slate-600 hover:bg-slate-100',
+                )}
+                style={(icon || 'boxes') === key ? { backgroundColor: color } : undefined}
+                aria-label={key}
+              >
+                <Ic className="w-4 h-4" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

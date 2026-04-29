@@ -108,6 +108,10 @@ export interface StationGroup {
   color?: string;
   // Optional description shown above the group's station list.
   description?: string;
+  // v2.2.0 — preset icon name (key into GROUP_ICON_PALETTE in
+  // groupIcons.tsx). Pre-2.2.0 saves don't have it; rendering falls
+  // back to the default `boxes` icon.
+  icon?: string;
 }
 
 export interface Station {
@@ -151,6 +155,17 @@ export interface Shift {
 export type HolidayCompMode = 'comp-day' | 'cash-ot';
 
 export interface PublicHoliday {
+  // v2.2.0 — stable identity that survives a date edit. Pre-2.2.0
+  // holidays were keyed by `date`, so renaming the date of an existing
+  // holiday would orphan it (the editor's findIndex(h => h.date ===
+  // editingDate) failed once date had changed). The migration normaliser
+  // backfills `id` from `date` for legacy records, so existing entries
+  // keep working under their date as a reasonable default identifier.
+  // Optional in the type to keep test fixtures lightweight; the
+  // normalizer + HolidayModal guarantee every persisted record has one
+  // before reaching App.tsx. Library functions key off `date` and don't
+  // depend on `id`.
+  id?: string;
   date: string; // YYYY-MM-DD
   name: string;
   type: string;

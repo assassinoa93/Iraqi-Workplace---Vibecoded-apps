@@ -5,7 +5,8 @@ import {
   Zap, Download, Eye, GitCompareArrows,
 } from 'lucide-react';
 import { Employee, Shift, Station, StationGroup, PublicHoliday, Config, Schedule } from '../types';
-import { Card } from '../components/Primitives';
+import { Card, ComparativeKpi } from '../components/Primitives';
+import { getGroupIcon } from '../lib/groupIcons';
 import { Switch } from '../components/ui/Switch';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
@@ -23,8 +24,6 @@ interface Props {
   config: Config;
   schedule: Schedule;
   isPeakDayFor: (config: Config) => (day: number) => boolean;
-  prevMonth: () => void;
-  nextMonth: () => void;
   onGoToRoster: () => void;
   onGoToLayout: () => void;
 }
@@ -301,6 +300,18 @@ export function WorkforcePlanningTab(props: Props) {
                   <span className="text-slate-500">{t('workforce.annual.chart.activeLabel')}: <span className="font-bold text-slate-800">{drillMonth?.monthName}</span></span>
                 </div>
               </div>
+
+              {/* v2.2.0 — bar-click drilldown. Pre-2.2.0 clicking a bar
+                  only highlighted it and updated the legend; the
+                  selected-month detail wasn't surfaced anywhere, leaving
+                  the click feeling like a no-op. This panel renders the
+                  selected month's required hours, recommended mix,
+                  monthly salary, and the top roles driving demand. */}
+              {drillMonth && (
+                <div className="mt-5 pt-5 border-t border-slate-100">
+                  <MonthDrilldownPanel month={drillMonth} annual={annual} fmtIQD={fmtIQD} />
+                </div>
+              )}
             </Card>
           )}
 
@@ -422,6 +433,7 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
   const actionLabel = group.action === 'hire' ? t('workforce.action.hire') : t('workforce.action.hold');
   const memberStationRollups = stationRollups.filter(s => group.stationIds.includes(s.stationId));
   void stationsLookup;
+  const GroupIcon = getGroupIcon(group.groupIcon);
 
   return (
     <div className="hover:bg-slate-50/40 transition-colors">
@@ -433,7 +445,7 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
           className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-white shadow-sm"
           style={{ backgroundColor: group.groupColor || '#475569' }}
         >
-          <MapPin className="w-5 h-5" />
+          <GroupIcon className="w-5 h-5" />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           <div className="flex items-center gap-3 flex-wrap">
@@ -447,28 +459,46 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
             </div>
           </div>
 
-          <div className={cn("grid gap-3", idealOnly ? "grid-cols-2 md:grid-cols-3" : "grid-cols-2 md:grid-cols-5")}>
-            {!idealOnly && (
-              <KpiBlock label={t('workforce.group.eligibleNow')} value={group.currentEligibleCount.toString()} />
-            )}
-            <KpiBlock label={t('workforce.rollup.recommendedFTE')} value={group.recommendedFTE.toString()} tone="emerald" />
-            <KpiBlock label={t('workforce.rollup.recommendedPT')} value={group.recommendedPartTime.toString()} tone="blue" />
-            {!idealOnly && (
+          {idealOnly ? (
+            // Ideal-only: just the recommendation, no comparison clutter.
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+              <KpiBlock label={t('workforce.rollup.recommendedFTE')} value={group.recommendedFTE.toString()} tone="emerald" />
+              <KpiBlock label={t('workforce.rollup.recommendedPT')} value={group.recommendedPartTime.toString()} tone="blue" />
+              <KpiBlock
+                label={t('workforce.rollup.peakMonth')}
+                value={t(MONTH_NAME_KEYS[group.peakMonthIndex - 1])}
+                hint={`${group.peakMonthFTE} FTE`}
+              />
+            </div>
+          ) : (
+            // v2.2.0 — comparative format: "current / recommended" together,
+            // breakdown of recommended (FTE + PT), and the action hint folded
+            // into the subtext. 3 columns instead of 5.
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+              <ComparativeKpi
+                label={t('workforce.rollup.rosterComparative')}
+                current={group.currentEligibleCount}
+                recommended={group.recommendedFTE + group.recommendedPartTime}
+                breakdown={group.recommendedPartTime > 0
+                  ? t('workforce.rollup.breakdown.ftePt', { fte: group.recommendedFTE, pt: group.recommendedPartTime })
+                  : t('workforce.rollup.breakdown.fte', { fte: group.recommendedFTE })}
+                deltaHint={group.action === 'hire'
+                  ? t('workforce.role.hireBy', { count: group.delta })
+                  : t('workforce.role.matchesNeed')}
+                tone={group.delta > 0 ? 'rose' : 'emerald'}
+              />
+              <KpiBlock
+                label={t('workforce.rollup.peakMonth')}
+                value={t(MONTH_NAME_KEYS[group.peakMonthIndex - 1])}
+                hint={`${group.peakMonthFTE} FTE`}
+              />
               <KpiBlock
                 label={t('workforce.role.delta')}
                 value={`${group.delta > 0 ? '+' : ''}${group.delta}`}
                 tone={group.delta > 0 ? 'rose' : 'neutral'}
-                hint={group.action === 'hire'
-                  ? t('workforce.role.hireBy', { count: group.delta })
-                  : t('workforce.role.matchesNeed')}
               />
-            )}
-            <KpiBlock
-              label={t('workforce.rollup.peakMonth')}
-              value={t(MONTH_NAME_KEYS[group.peakMonthIndex - 1])}
-              hint={`${group.peakMonthFTE} FTE`}
-            />
-          </div>
+            </div>
+          )}
 
           <div className="p-3 rounded-lg bg-slate-50/60 border border-slate-100 flex items-start gap-2">
             <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
@@ -484,20 +514,43 @@ function RollupGroupRow({ group, stationsLookup, stationRollups, idealOnly }: {
         <div className="px-5 pb-5 -mt-2">
           <div className="ml-14 pl-4 border-l-2 border-slate-200 space-y-2">
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('workforce.group.drilldown')}</p>
-            {memberStationRollups.map(s => (
-              <div key={s.stationId} className="bg-white rounded-lg border border-slate-100 p-3 flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-slate-800 truncate">{s.stationName}</p>
-                  <p className="text-[10px] text-slate-500 font-mono">{Math.round(s.annualRequiredHours).toLocaleString()}h/yr · peak {t(MONTH_NAME_KEYS[s.peakMonthIndex - 1])}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-sm font-black text-emerald-700">{s.recommendedFTE} FTE</p>
-                  {s.recommendedPartTime > 0 && (
-                    <p className="text-[10px] text-blue-700">+ {s.recommendedPartTime} PT</p>
+            {memberStationRollups.map(s => {
+              const totalRec = s.recommendedFTE + s.recommendedPartTime;
+              const deltaTone = s.delta > 0 ? 'text-rose-700' : 'text-emerald-700';
+              return (
+                <div key={s.stationId} className="bg-white rounded-lg border border-slate-100 p-3 flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-slate-800 truncate">{s.stationName}</p>
+                    <p className="text-[10px] text-slate-500 font-mono">{Math.round(s.annualRequiredHours).toLocaleString()}h/yr · peak {t(MONTH_NAME_KEYS[s.peakMonthIndex - 1])}</p>
+                  </div>
+                  {idealOnly ? (
+                    // Ideal-only: just the recommendation.
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-black text-emerald-700">{s.recommendedFTE} FTE</p>
+                      {s.recommendedPartTime > 0 && (
+                        <p className="text-[10px] text-blue-700">+ {s.recommendedPartTime} PT</p>
+                      )}
+                    </div>
+                  ) : (
+                    // v2.2.0 — comparative: "current / recommended" matches the
+                    // parent group row's pattern so the supervisor reads the
+                    // drilldown the same way they read the rollup above.
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-black tabular-nums">
+                        <span className="text-slate-500">{s.currentEligibleCount}</span>
+                        <span className="text-slate-300 mx-0.5">/</span>
+                        <span className={deltaTone}>{totalRec}</span>
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        {s.recommendedPartTime > 0
+                          ? t('workforce.rollup.breakdown.ftePt', { fte: s.recommendedFTE, pt: s.recommendedPartTime })
+                          : t('workforce.rollup.breakdown.fte', { fte: s.recommendedFTE })}
+                      </p>
+                    </div>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -537,28 +590,42 @@ function RollupStationRow({ station, idealOnly }: { station: AnnualRollupStation
             </div>
           </div>
 
-          <div className={cn("grid gap-3", idealOnly ? "grid-cols-2 md:grid-cols-3" : "grid-cols-2 md:grid-cols-5")}>
-            {!idealOnly && (
-              <KpiBlock label={t('workforce.station.current')} value={station.currentEligibleCount.toString()} />
-            )}
-            <KpiBlock label={t('workforce.rollup.recommendedFTE')} value={station.recommendedFTE.toString()} tone="emerald" />
-            <KpiBlock label={t('workforce.rollup.recommendedPT')} value={station.recommendedPartTime.toString()} tone="blue" />
-            {!idealOnly && (
+          {idealOnly ? (
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+              <KpiBlock label={t('workforce.rollup.recommendedFTE')} value={station.recommendedFTE.toString()} tone="emerald" />
+              <KpiBlock label={t('workforce.rollup.recommendedPT')} value={station.recommendedPartTime.toString()} tone="blue" />
+              <KpiBlock
+                label={t('workforce.rollup.peakMonth')}
+                value={t(MONTH_NAME_KEYS[station.peakMonthIndex - 1])}
+                hint={`${station.peakMonthFTE} FTE`}
+              />
+            </div>
+          ) : (
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+              <ComparativeKpi
+                label={t('workforce.rollup.rosterComparative')}
+                current={station.currentEligibleCount}
+                recommended={station.recommendedFTE + station.recommendedPartTime}
+                breakdown={station.recommendedPartTime > 0
+                  ? t('workforce.rollup.breakdown.ftePt', { fte: station.recommendedFTE, pt: station.recommendedPartTime })
+                  : t('workforce.rollup.breakdown.fte', { fte: station.recommendedFTE })}
+                deltaHint={station.action === 'hire'
+                  ? t('workforce.role.hireBy', { count: station.delta })
+                  : t('workforce.role.matchesNeed')}
+                tone={station.delta > 0 ? 'rose' : 'emerald'}
+              />
+              <KpiBlock
+                label={t('workforce.rollup.peakMonth')}
+                value={t(MONTH_NAME_KEYS[station.peakMonthIndex - 1])}
+                hint={`${station.peakMonthFTE} FTE`}
+              />
               <KpiBlock
                 label={t('workforce.role.delta')}
                 value={`${station.delta > 0 ? '+' : ''}${station.delta}`}
                 tone={station.delta > 0 ? 'rose' : 'neutral'}
-                hint={station.action === 'hire'
-                  ? t('workforce.role.hireBy', { count: station.delta })
-                  : t('workforce.role.matchesNeed')}
               />
-            )}
-            <KpiBlock
-              label={t('workforce.rollup.peakMonth')}
-              value={t(MONTH_NAME_KEYS[station.peakMonthIndex - 1])}
-              hint={`${station.peakMonthFTE} FTE`}
-            />
-          </div>
+            </div>
+          )}
 
           <div className="p-3 rounded-lg bg-slate-50/60 border border-slate-100 flex items-start gap-2">
             <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
@@ -566,6 +633,97 @@ function RollupStationRow({ station, idealOnly }: { station: AnnualRollupStation
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// v2.2.0 — drilldown panel for the bar a user clicked. Renders the
+// month's required hours, recommended mix, monthly salary, and the top
+// 3 roles driving the demand so the supervisor can answer "why does
+// August spike?" without leaving the planning view.
+function MonthDrilldownPanel({
+  month, annual, fmtIQD,
+}: {
+  month: MonthlyPlanSummary;
+  annual: ReturnType<typeof analyzeWorkforceAnnual>;
+  fmtIQD: (n: number) => string;
+}) {
+  const { t } = useI18n();
+  const isPeak = month.monthIndex === annual.peakMonthIndex;
+  const isValley = month.monthIndex === annual.valleyMonthIndex;
+  const peakHours = annual.byMonth[annual.peakMonthIndex - 1].monthlyRequiredHours;
+  const pctOfPeak = peakHours > 0 ? Math.round((month.monthlyRequiredHours / peakHours) * 100) : 0;
+  const monthName = t(MONTH_NAME_KEYS[month.monthIndex - 1]);
+
+  // Top 3 roles by required-hours for this month — answers "what's driving
+  // the demand?". Filters out roles with zero hours so the list isn't
+  // padded with empties for venues with only a couple of active roles.
+  const topRoles = [...month.plan.byRole]
+    .filter(r => r.monthlyRequiredHours > 0)
+    .sort((a, b) => b.monthlyRequiredHours - a.monthlyRequiredHours)
+    .slice(0, 3);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <h4 className="text-base font-bold text-slate-800 tracking-tight">{t('workforce.drilldown.title')}: {monthName}</h4>
+        {isPeak && (
+          <span className="text-[9px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded uppercase tracking-widest">
+            {t('workforce.drilldown.peakBadge')}
+          </span>
+        )}
+        {isValley && (
+          <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded uppercase tracking-widest">
+            {t('workforce.drilldown.valleyBadge')}
+          </span>
+        )}
+        {!isPeak && !isValley && (
+          <span className="text-[10px] text-slate-500 font-mono">{t('workforce.drilldown.vsPeak', { pct: pctOfPeak })}</span>
+        )}
+      </div>
+
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+        <div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('workforce.drilldown.requiredHours')}</p>
+          <p className="text-2xl font-black text-slate-800 tabular-nums">{Math.round(month.monthlyRequiredHours).toLocaleString()}h</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('workforce.drilldown.recommendedRoster')}</p>
+          <p className="text-2xl font-black text-emerald-700 tabular-nums">{month.recommendedFTE + month.recommendedPartTime}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            {month.recommendedPartTime > 0
+              ? t('workforce.rollup.breakdown.ftePt', { fte: month.recommendedFTE, pt: month.recommendedPartTime })
+              : t('workforce.rollup.breakdown.fte', { fte: month.recommendedFTE })}
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{t('workforce.drilldown.salary')}</p>
+          <p className="text-2xl font-black text-slate-800 tabular-nums">{fmtIQD(month.recommendedMonthlySalary)}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">IQD / mo</p>
+        </div>
+      </div>
+
+      {topRoles.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t('workforce.drilldown.topRoles')}</p>
+          <div className="space-y-1.5">
+            {topRoles.map(r => {
+              const pct = month.monthlyRequiredHours > 0 ? Math.round((r.monthlyRequiredHours / month.monthlyRequiredHours) * 100) : 0;
+              return (
+                <div key={r.role} className="flex items-center gap-3">
+                  <span className="text-[11px] font-bold text-slate-700 w-28 truncate">{r.role}</span>
+                  <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-500 w-20 text-end">
+                    {Math.round(r.monthlyRequiredHours).toLocaleString()}h ({pct}%)
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

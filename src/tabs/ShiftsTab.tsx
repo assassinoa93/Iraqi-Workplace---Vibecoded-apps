@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Clock, ChevronUp, ChevronDown, Settings, Trash2 } from 'lucide-react';
+import { Plus, Clock, ChevronUp, ChevronDown, Settings, Trash2, Lock } from 'lucide-react';
 import { Shift } from '../types';
 import { Card, SortableHeader, SortDir } from '../components/Primitives';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
+import { isSystemShift } from '../lib/systemShifts';
 
 interface ShiftsTabProps {
   shifts: Shift[];
@@ -126,9 +127,25 @@ export function ShiftsTab({ shifts, onAddNew, onEdit, onDelete, onMove }: Shifts
                     <button onClick={() => onEdit(s)} aria-label={`${t('action.edit')}: ${s.code}`} className="text-slate-400 hover:text-slate-900 transition-colors p-1">
                       <Settings className="w-4 h-4" />
                     </button>
-                    <button onClick={() => onDelete(s.code)} aria-label={`${t('action.delete')}: ${s.code}`} className="text-slate-400 hover:text-red-600 transition-colors p-1">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {/* v2.2.0 — system shifts (OFF/CP/AL/SL/MAT/PH) get a
+                        lock icon instead of a delete button. Several layers
+                        (auto-scheduler / leaves / comp-day rotation) key off
+                        these specific codes; deletion was already blocked
+                        with a notice, but exposing the trash icon implied
+                        the action was viable. */}
+                    {isSystemShift(s.code) ? (
+                      <span
+                        title={t('shifts.systemShift.locked')}
+                        className="text-slate-300 p-1"
+                        aria-label={t('shifts.systemShift.locked')}
+                      >
+                        <Lock className="w-4 h-4" />
+                      </span>
+                    ) : (
+                      <button onClick={() => onDelete(s.code)} aria-label={`${t('action.delete')}: ${s.code}`} className="text-slate-400 hover:text-red-600 transition-colors p-1">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

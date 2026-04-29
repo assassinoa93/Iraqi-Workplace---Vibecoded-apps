@@ -65,11 +65,11 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v2.1.4)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-2.1.4.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v2.2.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-2.2.0.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.1.4.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.2.0.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -77,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.1.4…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.2.0…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -218,6 +218,24 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v2.2.0
+
+Big UX sprint. Eleven user-driven items spanning the workforce planner, schedule grid, employee setup, station groups, auto-scheduler, holiday admin, and Electron shell. Every change keeps the compliance philosophy unchanged (reporting, not enforcement).
+
+| Area | Change |
+|------|--------|
+| **Workforce Planning rollup — comparative format** | Group + station rollup rows now lead with a single `current / recommended` block (e.g. `5 / 9 — 7 FTE + 2 PT`) instead of three separate KPIs. The expanded station drilldown inside group rows mirrors the same format. New `ComparativeKpi` component lives in `Primitives.tsx` for reuse. |
+| **Bar-click drilldown panel** | Clicking a bar in the monthly demand chart now reveals a panel with that month's required hours, recommended FTE+PT, monthly salary, peak/valley badges, and a top-3 roles bar showing which roles drive the demand. Pre-2.2.0 the bar click only highlighted the bar with no surfaced detail. |
+| **Station group icon picker** | New `StationGroup.icon` field with a curated 20-icon palette (`boxes`, `cart`, `coffee`, `truck`, `car`, `wrench`, …). Picker UI in the Layout tab's New Group form + a click-the-tile popover on existing kanban headers. The chosen icon also surfaces in the workforce-planning rollup so a group's identity is consistent across views. |
+| **Schedule "Violations only" + "Group by station" filters** | Two new toolbar buttons next to the role filter. Violations-only narrows to employees with any `severity:'violation'` finding in the active month and shows the count badge. Group-by-station sorts visible rows by each employee's most-frequent station that month, so per-station coverage scans cleanly without re-architecting the grid. |
+| **Month + Year picker** | The five tabs with month nav (Schedule, Dashboard, Payroll, Coverage&OT — plus a new shared `MonthYearPicker`) now open a 4×3 month grid + year stepper when you click the date card. Jumping Jan→Dec is one click instead of twelve. The chevrons still step ±1 month for adjacent navigation. |
+| **Auto-scheduler custom date range — cross-month included** | A new `Calendar` chevron next to the Auto-Schedule buttons opens a start/end date picker. Out-of-range cells stay untouched in both fresh and preserve modes. Cross-month ranges (e.g. 15 Apr → 15 May) are split into per-month invocations and stitched via the running `allSchedules` — the rolling-7-day window crosses the boundary cleanly. A short-period hint (`< 28 days`) reminds the supervisor that rest-day rotation balances best across a full month. Multi-month runs apply directly with a summary toast (the per-month preview modal would be too dense to skim). |
+| **EmployeeModal — station group eligibility** | New section above the per-station eligibility chips that lets the supervisor pick station groups instead. Adding a group is shorthand for "every current AND future station inside it" — newly-added stations inherit eligibility automatically. Falls back gracefully when no groups are defined. |
+| **System shifts locked** | The `OFF / CP / AL / SL / MAT / PH` shifts (which the auto-scheduler, leave system, and comp-day rotation key off) now show a lock icon instead of a delete button on the Shifts tab, and the `Counts as Work` / `Hazardous` toggles are replaced with a read-only summary in the modal. Display name, times, and description remain editable for the (rare) cosmetic tweak. |
+| **Electron taskbar minimize** | Pre-2.2.0 the renderer intercepted the minimize event and called `mainWindow.hide()`, which removed the window from the taskbar entirely so a second taskbar-click sent it to the tray instead of restoring it. v2.2.0 lets Windows handle minimize natively (window stays in the taskbar). The tray remains the path for FULL hiding via the close button. |
+| **Holidays — bulk compMode set** | Three new buttons in the Holidays tab header (`Inherit` / `Comp day` / `Cash 2×`) flip every holiday's mode at once. Saves the supervisor from cycling 14 individual pills when peak-season policy changes uniformly. |
+| **Stable holiday id** | New `PublicHoliday.id` field that survives a date edit. Pre-2.2.0 the editor's findIndex used `date` for matching — re-dating a holiday orphaned it and a subsequent import with the original date could silently overwrite a different entry. The migration normalizer backfills `id = date` for legacy records so existing data keeps its identity; new entries get a generated id. |
 
 ## 📦 What's new in v2.1.4
 

@@ -181,22 +181,25 @@ export const INITIAL_STATIONS: Station[] = [
 // estimates and should be edited when the official lunar dates are announced.
 // All carry the same Art. 74 reference because that's the article that grants
 // double-pay or compensatory rest for work on a public holiday.
+// v2.2.0 — seed entries now carry stable ids matching their date so
+// post-2.2.0 backups generated from a fresh seed look identical to
+// pre-2.2.0 data after the migration normalizer's date→id backfill.
 export const INITIAL_HOLIDAYS: PublicHoliday[] = [
-  { date: '2026-01-01', name: 'New Year Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
-  { date: '2026-01-06', name: 'Army Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
-  { date: '2026-03-20', name: 'Eid al-Fitr (Estimated)', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
-  { date: '2026-03-21', name: 'Nowruz', type: 'National', legalReference: 'Art. 74', isFixed: true },
-  { date: '2026-03-22', name: 'Eid al-Fitr Holiday', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
-  { date: '2026-05-01', name: 'Labor Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
-  { date: '2026-05-27', name: 'Eid al-Adha (Estimated)', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
-  { date: '2026-05-28', name: 'Eid al-Adha Holiday', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
-  { date: '2026-06-16', name: 'Islamic New Year', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
-  { date: '2026-06-25', name: 'Ashura', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
-  { date: '2026-07-14', name: 'Republic Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
-  { date: '2026-08-25', name: 'Mawlid al-Nabi', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
-  { date: '2026-10-03', name: 'Independence Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
-  { date: '2026-12-10', name: 'Victory Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
-  { date: '2026-12-25', name: 'Christmas Day', type: 'Religious', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-01-01', date: '2026-01-01', name: 'New Year Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-01-06', date: '2026-01-06', name: 'Army Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-03-20', date: '2026-03-20', name: 'Eid al-Fitr (Estimated)', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
+  { id: '2026-03-21', date: '2026-03-21', name: 'Nowruz', type: 'National', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-03-22', date: '2026-03-22', name: 'Eid al-Fitr Holiday', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
+  { id: '2026-05-01', date: '2026-05-01', name: 'Labor Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-05-27', date: '2026-05-27', name: 'Eid al-Adha (Estimated)', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
+  { id: '2026-05-28', date: '2026-05-28', name: 'Eid al-Adha Holiday', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
+  { id: '2026-06-16', date: '2026-06-16', name: 'Islamic New Year', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
+  { id: '2026-06-25', date: '2026-06-25', name: 'Ashura', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
+  { id: '2026-07-14', date: '2026-07-14', name: 'Republic Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-08-25', date: '2026-08-25', name: 'Mawlid al-Nabi', type: 'Religious', legalReference: 'Art. 74', isFixed: false },
+  { id: '2026-10-03', date: '2026-10-03', name: 'Independence Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-12-10', date: '2026-12-10', name: 'Victory Day', type: 'National', legalReference: 'Art. 74', isFixed: true },
+  { id: '2026-12-25', date: '2026-12-25', name: 'Christmas Day', type: 'Religious', legalReference: 'Art. 74', isFixed: true },
 ];
 
 export const DEFAULT_CONFIG: Config = {

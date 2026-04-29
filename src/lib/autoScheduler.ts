@@ -22,6 +22,13 @@ interface RunArgs {
   // touch it, won't reassign the employee on that day, and counts the
   // entry's hours toward the rolling-7-day window.
   preserveExisting?: Schedule;
+  // v2.2.0 — optional day range to scope the run within the active
+  // month. Defaults to the full month. The caller is responsible for
+  // pre-populating `preserveExisting` with cells OUTSIDE the range when
+  // fresh mode is desired (so out-of-range cells survive the rebuild) —
+  // App.tsx orchestrates this for both fresh + preserve modes.
+  startDay?: number;
+  endDay?: number;
 }
 
 export interface RunResult {
@@ -69,13 +76,18 @@ const shiftOverlapsNightWindow = (shiftStart: string, shiftEnd: string, nightSta
  * are governed by maxConsecWorkDays + the rolling-7-day weekly cap; the candidate
  * sort prefers those who recently rested, distributing rest naturally across the week.
  */
-export function runAutoScheduler({ employees, shifts, stations, holidays, config, isPeakDay, allSchedules, preserveExisting }: RunArgs): RunResult {
+export function runAutoScheduler({ employees, shifts, stations, holidays, config, isPeakDay, allSchedules, preserveExisting, startDay, endDay }: RunArgs): RunResult {
   const newSchedule: Schedule = {};
   const workShifts = shifts.filter(s => s.isWork);
 
   if (workShifts.length === 0 || stations.length === 0) {
     throw new Error('Auto-scheduler requires shifts and stations defined.');
   }
+
+  // v2.2.0 — clamp the active range to a sane window inside the month.
+  // Defaults to the full month so existing callers behave identically.
+  const rangeStart = Math.max(1, startDay ?? 1);
+  const rangeEnd = Math.min(config.daysInMonth, endDay ?? config.daysInMonth);
 
   // Indexes built once and reused. `shiftByCode` replaces every `shifts.find()`
   // inside the hot loop. `shiftBounds` and `stationBounds` cache the parsed
@@ -333,7 +345,7 @@ export function runAutoScheduler({ employees, shifts, stations, holidays, config
   // to take a day parameter on every call from the hot loop.
   let currentDay = 1;
 
-  for (let day = 1; day <= config.daysInMonth; day++) {
+  for (let day = rangeStart; day <= rangeEnd; day++) {
     currentDay = day;
     dayAssignmentsByStation = new Map<string, Set<string>>();
     const date = new Date(config.year, config.month - 1, day);

@@ -43,6 +43,7 @@ import {
 import { APP_VERSION } from './lib/appMeta';
 import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap, computeWorkedHours } from './lib/payroll';
 import { computeHolidayPay } from './lib/holidayCompPay';
+import { isSystemShift } from './lib/systemShifts';
 import { parseHour, getOperatingHoursForDow } from './lib/time';
 import { cn } from './lib/utils';
 import { runAutoScheduler } from './lib/autoScheduler';
@@ -349,6 +350,14 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [scheduleFilter, setScheduleFilter] = useState('');
+  // v2.2.0 — extra schedule filters. `violationsOnly` narrows the visible
+  // roster to employees with at least one severity:'violation' entry in
+  // the current month so the supervisor can spot where the issues are.
+  // `groupByStation` clusters rows by each employee's primary station
+  // (most-frequent stationId in the visible month) so the "per station"
+  // mental model becomes scannable without re-architecting the grid.
+  const [scheduleViolationsOnly, setScheduleViolationsOnly] = useState(false);
+  const [scheduleGroupByStation, setScheduleGroupByStation] = useState(false);
   const [scheduleRoleFilter, setScheduleRoleFilter] = useState<string>('all');
   const [paintWarnings, setPaintWarnings] = useState<{ empName: string; warnings: string[] } | null>(null);
   const paintWarningTimerRef = React.useRef<number | null>(null);
@@ -717,10 +726,8 @@ export default function App() {
   // but the in-flight schedule between delete and reload would have
   // dangling shift codes — so block instead of letting the user slip
   // into an inconsistent state.
-  const SYSTEM_SHIFT_CODES = new Set(['OFF', 'AL', 'SL', 'MAT', 'PH', 'CP']);
-
   const handleDeleteShift = (code: string) => {
-    if (SYSTEM_SHIFT_CODES.has(code)) {
+    if (isSystemShift(code)) {
       setConfirmState({
         isOpen: true,
         title: t('confirm.deleteShift.protectedTitle'),
@@ -1107,28 +1114,32 @@ export default function App() {
     setSelectedStation(null);
   };
 
-  const nextMonth = () => {
-    const next = addMonths(new Date(config.year, config.month - 1, 1), 1);
+  // v2.2.0 — single source-of-truth setter for active month. The prev /
+  // next helpers delegate so the cell-undo-stack reset and daysInMonth
+  // recompute live in one place. The MonthYearPicker calls
+  // `setActiveMonth(year, month)` directly when the user jumps to a
+  // non-adjacent month from the popover.
+  const setActiveMonth = (year: number, month: number) => {
+    const target = new Date(year, month - 1, 1);
     setConfig(prev => ({
       ...prev,
-      year: next.getFullYear(),
-      month: next.getMonth() + 1,
-      daysInMonth: getDaysInMonth(next),
+      year: target.getFullYear(),
+      month: target.getMonth() + 1,
+      daysInMonth: getDaysInMonth(target),
     }));
     // Per-cell undo entries are scoped to the active month — drop them so
     // Ctrl+Z doesn't try to revert paints from a month that's no longer open.
     setCellUndoStack([]);
   };
 
+  const nextMonth = () => {
+    const next = addMonths(new Date(config.year, config.month - 1, 1), 1);
+    setActiveMonth(next.getFullYear(), next.getMonth() + 1);
+  };
+
   const prevMonth = () => {
     const prev = subMonths(new Date(config.year, config.month - 1, 1), 1);
-    setConfig(last => ({
-      ...last,
-      year: prev.getFullYear(),
-      month: prev.getMonth() + 1,
-      daysInMonth: getDaysInMonth(prev),
-    }));
-    setCellUndoStack([]);
+    setActiveMonth(prev.getFullYear(), prev.getMonth() + 1);
   };
 
   // Preview-then-apply for the auto-scheduler. `runId` is a fresh nonce on
@@ -1146,58 +1157,206 @@ export default function App() {
   // (`fresh`) or fills around the user's existing entries (`preserve`).
   // The "Optimal (Preserve Absences)" button on the Schedule tab passes
   // `preserve` so manual leave / vacation / shift edits stay locked.
-  const handleRunAutoScheduler = (mode: 'fresh' | 'preserve' = 'fresh') => {
+  // v2.2.0 — `range` is an ISO-date pair (YYYY-MM-DD). When omitted,
+  // runs across the full active month with the existing preview-and-
+  // apply flow. When supplied:
+  //   • Single-month range → preview-and-apply, day-clamped.
+  //   • Cross-month range → split into per-month invocations, stitched
+  //     via `allSchedules`, applied directly with a summary toast (a
+  //     multi-month preview modal would be too dense to be useful).
+  const handleRunAutoScheduler = (mode: 'fresh' | 'preserve' = 'fresh', range?: { start: string; end: string }) => {
     try {
-      const { schedule: newSchedule, updatedEmployees, compDayShortfall } = runAutoScheduler({
-        employees, shifts, stations, holidays, config, isPeakDay,
-        // Pass the entire allSchedules map so the rolling-7-day window can
-        // see the trailing days of the prior month.
-        allSchedules,
-        // In preserve mode, the existing month's schedule is treated as a
-        // set of locked cells the algorithm fills around.
-        preserveExisting: mode === 'preserve' ? schedule : undefined,
-      });
-
-      const previewViolations = ComplianceEngine
-        .check(updatedEmployees, shifts, holidays, config, newSchedule, allSchedules)
-        .filter(v => v.rule !== 'Weekly hours cap');
-
-      let totalRequired = 0;
-      let totalFilled = 0;
-      for (const st of stations) {
-        const open = parseHour(st.openingTime);
-        const close = parseHour(st.closingTime);
-        for (let day = 1; day <= config.daysInMonth; day++) {
-          const peak = isPeakDay(day);
-          const need = peak ? st.peakMinHC : st.normalMinHC;
-          if (need <= 0) continue;
-          totalRequired += need;
-          for (let h = open; h < close; h++) {
-            let covered = 0;
-            for (const emp of updatedEmployees) {
-              const a = newSchedule[emp.empId]?.[day];
-              if (!a || a.stationId !== st.id) continue;
-              const sh = shifts.find(s => s.code === a.shiftCode);
-              if (!sh) continue;
-              const sH = parseHour(sh.start);
-              const eH = parseHour(sh.end);
-              if (h >= sH && h < eH) { covered++; break; }
-            }
-            if (covered >= need) { totalFilled += need; break; }
-          }
-        }
+      // Default path: no range → existing full-month preview-and-apply.
+      if (!range) {
+        runSingleMonthAuto(mode);
+        return;
       }
 
-      const stats = buildPreviewStats(
-        newSchedule, shifts, updatedEmployees, previewViolations,
-        config.daysInMonth, totalRequired, totalFilled,
-        compDayShortfall,
-      );
+      const startDate = new Date(range.start + 'T00:00:00');
+      const endDate = new Date(range.end + 'T00:00:00');
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
+        showInfo(t('info.error.title'), t('schedule.runAuto.range.invalid'));
+        return;
+      }
 
-      setPendingScheduleResult({ schedule: newSchedule, employees: updatedEmployees, stats, runId: Date.now() });
+      const sameMonth = startDate.getFullYear() === endDate.getFullYear() && startDate.getMonth() === endDate.getMonth();
+
+      // Single-month range: invoke the regular preview-and-apply path
+      // with day clamps. Switch the active month if the range targets a
+      // different month than the one currently displayed so the preview
+      // makes sense.
+      if (sameMonth) {
+        const targetYear = startDate.getFullYear();
+        const targetMonth = startDate.getMonth() + 1;
+        if (targetYear !== config.year || targetMonth !== config.month) {
+          setActiveMonth(targetYear, targetMonth);
+          // Defer one tick so the config update lands before the run.
+          setTimeout(() => runSingleMonthAuto(mode, { startDay: startDate.getDate(), endDay: endDate.getDate() }), 0);
+        } else {
+          runSingleMonthAuto(mode, { startDay: startDate.getDate(), endDay: endDate.getDate() });
+        }
+        return;
+      }
+
+      // Cross-month: orchestrate per-month invocations. Each month's
+      // result is folded back into the running `allSchedules` so the
+      // next month's rolling-7-day check sees the just-scheduled
+      // trailing days of the prior month.
+      let workingAllSchedules: Record<string, Schedule> = { ...allSchedules };
+      let workingEmployees: Employee[] = employees;
+      const aggregatedShortfall: Array<{ empId: string; debtDays: number }> = [];
+
+      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      const stopMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+      let monthsProcessed = 0;
+      let totalDays = 0;
+
+      while (cursor.getTime() <= stopMonth.getTime()) {
+        const yr = cursor.getFullYear();
+        const mo = cursor.getMonth() + 1;
+        const dim = getDaysInMonth(cursor);
+        const monthKey = `scheduler_schedule_${yr}_${mo}`;
+
+        const isFirstMonth = yr === startDate.getFullYear() && mo === startDate.getMonth() + 1;
+        const isLastMonth = yr === endDate.getFullYear() && mo === endDate.getMonth() + 1;
+        const monthStartDay = isFirstMonth ? startDate.getDate() : 1;
+        const monthEndDay = isLastMonth ? endDate.getDate() : dim;
+        totalDays += monthEndDay - monthStartDay + 1;
+
+        const monthConfig: Config = { ...config, year: yr, month: mo, daysInMonth: dim };
+        const monthSchedule = workingAllSchedules[monthKey] || {};
+
+        // Per-month preserve. Same logic as the single-month path: in
+        // preserve mode every cell is locked; in fresh mode only the
+        // out-of-range cells are locked.
+        let monthPreserve: Schedule | undefined;
+        if (mode === 'preserve') {
+          monthPreserve = monthSchedule;
+        } else if (monthStartDay > 1 || monthEndDay < dim) {
+          const filtered: Schedule = {};
+          for (const [empId, days] of Object.entries(monthSchedule)) {
+            const kept: Record<number, typeof days[number]> = {};
+            for (const [dStr, entry] of Object.entries(days)) {
+              const d = Number(dStr);
+              if (d < monthStartDay || d > monthEndDay) kept[d] = entry;
+            }
+            if (Object.keys(kept).length > 0) filtered[empId] = kept;
+          }
+          monthPreserve = filtered;
+        }
+
+        const { schedule: monthOut, updatedEmployees, compDayShortfall } = runAutoScheduler({
+          employees: workingEmployees,
+          shifts, stations, holidays,
+          config: monthConfig,
+          isPeakDay: isPeakDayFor(monthConfig),
+          allSchedules: workingAllSchedules,
+          preserveExisting: monthPreserve,
+          startDay: monthStartDay,
+          endDay: monthEndDay,
+        });
+
+        workingAllSchedules = { ...workingAllSchedules, [monthKey]: monthOut };
+        workingEmployees = updatedEmployees;
+        aggregatedShortfall.push(...compDayShortfall);
+        monthsProcessed++;
+
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+
+      // Apply directly. Snapshot the prior state into the undo stack so
+      // the user can roll back the entire multi-month run as a single
+      // step, matching the single-month path's safety net.
+      setScheduleUndoStack(prev => [
+        { schedule, employees, appliedAt: Date.now() },
+        ...prev,
+      ].slice(0, 5));
+      setEmployees(workingEmployees);
+      setAllSchedules(workingAllSchedules);
+      setCellUndoStack([]);
+
+      // Summary toast. Aggregate compDayShortfall into the message so
+      // the user knows whether any month couldn't fully rotate Art. 74
+      // comp days; they can navigate to that month to see the warning
+      // banner the preview modal usually surfaces.
+      const shortfallMsg = aggregatedShortfall.length > 0
+        ? ` ${t('info.compDayShortfall.suffix', { count: aggregatedShortfall.length })}`
+        : '';
+      showInfo(
+        t('action.runAutoSchedule'),
+        t('schedule.runAuto.range.applied', { days: totalDays, months: monthsProcessed }) + shortfallMsg,
+      );
     } catch (e) {
       showInfo(t('info.error.title'), e instanceof Error ? e.message : 'Auto-scheduler failed.');
     }
+  };
+
+  // Single-month auto-schedule with optional within-month day clamps.
+  // Carries the existing preview-then-apply UX so the user reviews
+  // stats before committing.
+  const runSingleMonthAuto = (mode: 'fresh' | 'preserve', range?: { startDay: number; endDay: number }) => {
+    const startDay = range?.startDay ?? 1;
+    const endDay = range?.endDay ?? config.daysInMonth;
+    let effectivePreserve: Schedule | undefined;
+    if (mode === 'preserve') {
+      effectivePreserve = schedule;
+    } else if (range && (startDay > 1 || endDay < config.daysInMonth)) {
+      const filtered: Schedule = {};
+      for (const [empId, days] of Object.entries(schedule)) {
+        const kept: Record<number, typeof days[number]> = {};
+        for (const [dStr, entry] of Object.entries(days)) {
+          const d = Number(dStr);
+          if (d < startDay || d > endDay) kept[d] = entry;
+        }
+        if (Object.keys(kept).length > 0) filtered[empId] = kept;
+      }
+      effectivePreserve = filtered;
+    }
+
+    const { schedule: newSchedule, updatedEmployees, compDayShortfall } = runAutoScheduler({
+      employees, shifts, stations, holidays, config, isPeakDay,
+      allSchedules,
+      preserveExisting: effectivePreserve,
+      startDay, endDay,
+    });
+
+    const previewViolations = ComplianceEngine
+      .check(updatedEmployees, shifts, holidays, config, newSchedule, allSchedules)
+      .filter(v => v.rule !== 'Weekly hours cap');
+
+    let totalRequired = 0;
+    let totalFilled = 0;
+    for (const st of stations) {
+      const open = parseHour(st.openingTime);
+      const close = parseHour(st.closingTime);
+      for (let day = 1; day <= config.daysInMonth; day++) {
+        const peak = isPeakDay(day);
+        const need = peak ? st.peakMinHC : st.normalMinHC;
+        if (need <= 0) continue;
+        totalRequired += need;
+        for (let h = open; h < close; h++) {
+          let covered = 0;
+          for (const emp of updatedEmployees) {
+            const a = newSchedule[emp.empId]?.[day];
+            if (!a || a.stationId !== st.id) continue;
+            const sh = shifts.find(s => s.code === a.shiftCode);
+            if (!sh) continue;
+            const sH = parseHour(sh.start);
+            const eH = parseHour(sh.end);
+            if (h >= sH && h < eH) { covered++; break; }
+          }
+          if (covered >= need) { totalFilled += need; break; }
+        }
+      }
+    }
+
+    const stats = buildPreviewStats(
+      newSchedule, shifts, updatedEmployees, previewViolations,
+      config.daysInMonth, totalRequired, totalFilled,
+      compDayShortfall,
+    );
+
+    setPendingScheduleResult({ schedule: newSchedule, employees: updatedEmployees, stats, runId: Date.now() });
   };
 
   const applyPendingSchedule = () => {
@@ -1229,14 +1388,15 @@ export default function App() {
   };
 
   const handleSaveHoliday = (holi: PublicHoliday) => {
-    // Identify the existing entry by the *original* date when editing —
-    // lets the user correct a date by editing without leaving a phantom
-    // entry behind. New holidays match on the new date (no original).
-    const editingDate = editingHoliday?.date;
+    // v2.2.0 — match by stable `id` instead of `date`. The user can now
+    // freely edit a holiday's date without orphaning the entry, and a
+    // brand-new entry's id is assigned in the modal's empty() factory.
+    // Falls back to date matching when id is missing — a defensive guard
+    // for any code path that might construct a holiday without going
+    // through the normalizer (shouldn't happen in practice).
+    const targetId = holi.id ?? holi.date;
     setHolidays(prev => {
-      const idx = editingDate
-        ? prev.findIndex(h => h.date === editingDate)
-        : prev.findIndex(h => h.date === holi.date);
+      const idx = prev.findIndex(h => (h.id ?? h.date) === targetId);
       if (idx >= 0) {
         const next = [...prev];
         next[idx] = holi;
@@ -1372,7 +1532,7 @@ export default function App() {
 
   const filteredScheduleEmployees = useMemo(() => {
     const q = scheduleFilter.trim().toLowerCase();
-    return employees.filter(e => {
+    let list = employees.filter(e => {
       if (scheduleRoleFilter !== 'all' && e.role !== scheduleRoleFilter) return false;
       if (!q) return true;
       return (
@@ -1381,7 +1541,49 @@ export default function App() {
         e.department.toLowerCase().includes(q)
       );
     });
-  }, [employees, scheduleFilter, scheduleRoleFilter]);
+
+    if (scheduleViolationsOnly) {
+      // Only severity:'violation' entries count — info findings (e.g. "PH
+      // worked", "comp day late") are not violations.
+      const hasViolation = new Set<string>();
+      for (const v of violations) {
+        if ((v.severity ?? 'violation') === 'violation') hasViolation.add(v.empId);
+      }
+      list = list.filter(e => hasViolation.has(e.empId));
+    }
+
+    if (scheduleGroupByStation) {
+      // Compute each employee's primary station = the stationId they're
+      // assigned to most often in the visible month. Employees with no
+      // station assignments fall into an "unassigned" bucket sorted last.
+      const stationOrder = new Map(stations.map((s, i) => [s.id, i]));
+      const primaryStation = (empId: string): string => {
+        const empSched = schedule[empId] || {};
+        const counts = new Map<string, number>();
+        for (const entry of Object.values(empSched)) {
+          if (entry.stationId) counts.set(entry.stationId, (counts.get(entry.stationId) || 0) + 1);
+        }
+        let best = '';
+        let bestN = 0;
+        for (const [sid, n] of counts) {
+          if (n > bestN) { bestN = n; best = sid; }
+        }
+        return best;
+      };
+      list = [...list].sort((a, b) => {
+        const sa = primaryStation(a.empId);
+        const sb = primaryStation(b.empId);
+        if (sa === sb) return a.name.localeCompare(b.name);
+        if (!sa) return 1; // unassigned last
+        if (!sb) return -1;
+        const oa = stationOrder.get(sa) ?? 999;
+        const ob = stationOrder.get(sb) ?? 999;
+        return oa - ob;
+      });
+    }
+
+    return list;
+  }, [employees, scheduleFilter, scheduleRoleFilter, scheduleViolationsOnly, scheduleGroupByStation, violations, schedule, stations]);
 
   const coverageMetrics = useMemo(() => {
     let totalRequired = 0;
@@ -1998,6 +2200,7 @@ export default function App() {
                 setIsStatsModalOpen={setIsStatsModalOpen}
                 prevMonth={prevMonth}
                 nextMonth={nextMonth}
+                setActiveMonth={setActiveMonth}
                 onGoToRoster={() => setActiveTab('roster')}
                 onLoadSample={loadSampleData}
                 activeCompanyId={activeCompanyId}
@@ -2015,6 +2218,7 @@ export default function App() {
                 allSchedules={allSchedules}
                 prevMonth={prevMonth}
                 nextMonth={nextMonth}
+                setActiveMonth={setActiveMonth}
                 onGoToRoster={() => setActiveTab('roster')}
                 onGoToSchedule={() => setActiveTab('schedule')}
               />
@@ -2030,8 +2234,6 @@ export default function App() {
                 config={config}
                 schedule={schedule}
                 isPeakDayFor={isPeakDayFor}
-                prevMonth={prevMonth}
-                nextMonth={nextMonth}
                 onGoToRoster={() => setActiveTab('roster')}
                 onGoToLayout={() => setActiveTab('layout')}
               />
@@ -2047,6 +2249,7 @@ export default function App() {
                 config={config}
                 prevMonth={prevMonth}
                 nextMonth={nextMonth}
+                setActiveMonth={setActiveMonth}
                 onExport={exportScheduleCSV}
                 onUpdateEmployee={(next) => {
                   // Diff against the prior employee record so we can:
@@ -2117,10 +2320,16 @@ export default function App() {
                 setScheduleFilter={setScheduleFilter}
                 scheduleRoleFilter={scheduleRoleFilter}
                 setScheduleRoleFilter={setScheduleRoleFilter}
+                scheduleViolationsOnly={scheduleViolationsOnly}
+                setScheduleViolationsOnly={setScheduleViolationsOnly}
+                scheduleGroupByStation={scheduleGroupByStation}
+                setScheduleGroupByStation={setScheduleGroupByStation}
+                violationCount={violations.filter(v => (v.severity ?? 'violation') === 'violation').length}
                 rosterRoles={rosterRoles}
                 scheduleUndoStack={scheduleUndoStack}
                 prevMonth={prevMonth}
                 nextMonth={nextMonth}
+                setActiveMonth={setActiveMonth}
                 onCellClick={handleCellClick}
                 onCellRangeFill={handleCellRangeFill}
                 onUndo={undoLastSchedule}
@@ -2164,9 +2373,16 @@ export default function App() {
                   isOpen: true,
                   title: t('confirm.eraseHoliday.title'),
                   message: t('confirm.eraseHoliday.body', { name: holi.name }),
-                  onConfirm: () => setHolidays(prev => prev.filter(h => h.date !== holi.date)),
+                  onConfirm: () => {
+                    const targetId = holi.id ?? holi.date;
+                    setHolidays(prev => prev.filter(h => (h.id ?? h.date) !== targetId));
+                  },
                 })}
-                onUpdate={(holi) => setHolidays(prev => prev.map(h => h.date === holi.date ? holi : h))}
+                onUpdate={(holi) => {
+                  const targetId = holi.id ?? holi.date;
+                  setHolidays(prev => prev.map(h => (h.id ?? h.date) === targetId ? holi : h));
+                }}
+                onSetAllCompModes={(mode) => setHolidays(prev => prev.map(h => ({ ...h, compMode: mode })))}
               />
             )}
 
@@ -2209,6 +2425,7 @@ export default function App() {
         onSave={handleSaveEmployee}
         employee={editingEmployee}
         stations={stations}
+        stationGroups={stationGroups}
         shifts={shifts}
         config={config}
       />

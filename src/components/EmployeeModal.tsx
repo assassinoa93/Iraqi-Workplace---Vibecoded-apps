@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import { X, Plus } from 'lucide-react';
 import { format } from 'date-fns';
-import { Employee, Station, Config, Shift } from '../types';
+import { Employee, Station, StationGroup, Config, Shift } from '../types';
 import { cn } from '../lib/utils';
 import { SettingField } from './Primitives';
 import { Switch } from './ui/Switch';
@@ -16,6 +16,12 @@ interface EmployeeModalProps {
   onSave: (emp: Employee) => void;
   employee: Employee | null;
   stations: Station[];
+  // v2.2.0 — station groups available for group-level eligibility. The
+  // auto-scheduler treats a groupId in `eligibleGroups` as "open
+  // eligibility for every station in this group" so the supervisor
+  // doesn't have to re-tick each station individually after defining a
+  // new group.
+  stationGroups: StationGroup[];
   shifts: Shift[];
   config: Pick<Config, 'standardWeeklyHrsCap'>;
 }
@@ -50,7 +56,7 @@ const empty = (config: Pick<Config, 'standardWeeklyHrsCap'>): Employee => {
   return seed;
 };
 
-export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shifts, config }: EmployeeModalProps) {
+export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, stationGroups, shifts, config }: EmployeeModalProps) {
   const { t } = useI18n();
   // useModalKeys handles Escape; initial focus is wired to the first
   // input below (not the close button) so pressing Enter after open
@@ -84,6 +90,18 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
         ? prev.eligibleStations.filter(sid => sid !== id)
         : [...prev.eligibleStations, id]
     }));
+  };
+
+  const toggleGroup = (id: string) => {
+    setFormData(prev => {
+      const current = prev.eligibleGroups || [];
+      return {
+        ...prev,
+        eligibleGroups: current.includes(id)
+          ? current.filter(gid => gid !== id)
+          : [...current, id],
+      };
+    });
   };
 
   const togglePreferred = (code: string) => {
@@ -214,6 +232,46 @@ export function EmployeeModal({ isOpen, onClose, onSave, employee, stations, shi
               </p>
             </div>
           </div>
+
+          {/* v2.2.0 — group-level eligibility section. Adding a group
+              ID to `eligibleGroups` is shorthand for "this employee is
+              eligible for every station in the group, including ones
+              the user creates LATER inside that group". The
+              per-station section below is kept for finer-grained
+              overrides (e.g. eligible for one station outside the
+              group's natural set). */}
+          {stationGroups.length > 0 && (
+            <div className="space-y-3 p-4 bg-emerald-50/40 rounded-lg border border-emerald-100">
+              <div>
+                <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest">{t('modal.employee.groupEligibility.title')}</p>
+                <p className="text-[10px] text-slate-500 leading-relaxed mt-1">{t('modal.employee.groupEligibility.note')}</p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {stationGroups.map(g => {
+                  const active = (formData.eligibleGroups || []).includes(g.id);
+                  const memberCount = stations.filter(s => s.groupId === g.id).length;
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => toggleGroup(g.id)}
+                      type="button"
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border',
+                        active
+                          ? 'border-transparent text-white shadow-sm'
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-emerald-300',
+                      )}
+                      style={active && g.color ? { backgroundColor: g.color, borderColor: g.color } : undefined}
+                    >
+                      <Plus className={cn('w-3 h-3', active && 'rotate-45')} />
+                      <span className="truncate">{g.name}</span>
+                      <span className={cn('text-[9px] font-mono', active ? 'opacity-80' : 'text-slate-400')}>· {memberCount}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3 p-4 bg-blue-50/30 rounded-lg border border-blue-100">
             <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">{t('modal.employee.stationEligibility')}</p>

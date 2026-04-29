@@ -1,8 +1,7 @@
 import React, { useMemo, useState, useRef } from 'react';
-import { Download, Calendar, ChevronLeft, ChevronRight, Upload, FileSpreadsheet } from 'lucide-react';
-import { format } from 'date-fns';
+import { Download, Calendar, Upload, FileSpreadsheet } from 'lucide-react';
 import { Employee, PublicHoliday, Schedule, Shift, Config } from '../types';
-import { Card, SortableHeader, SortDir } from '../components/Primitives';
+import { Card, SortableHeader, SortDir, MonthYearPicker } from '../components/Primitives';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
 import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap, computeWorkedHours } from '../lib/payroll';
@@ -32,6 +31,7 @@ interface PayrollTabProps {
   // so credits / OT figures match what the supervisor is reviewing.
   prevMonth: () => void;
   nextMonth: () => void;
+  setActiveMonth: (year: number, month: number) => void;
 }
 
 const csvCell = (v: string | number): string => {
@@ -62,7 +62,7 @@ const parseCSVLine = (line: string): string[] => {
   return out;
 };
 
-export function PayrollTab({ employees, schedule, shifts, holidays, config, allSchedules, onExport, onUpdateEmployee, prevMonth, nextMonth }: PayrollTabProps) {
+export function PayrollTab({ employees, schedule, shifts, holidays, config, allSchedules, onExport, onUpdateEmployee, prevMonth, nextMonth, setActiveMonth }: PayrollTabProps) {
   const { t } = useI18n();
   const [leaveEditFor, setLeaveEditFor] = useState<Employee | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -215,20 +215,13 @@ export function PayrollTab({ employees, schedule, shifts, holidays, config, allS
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
-            <button onClick={prevMonth} aria-label={t('action.prevMonth')} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <div className="text-center px-4 w-40 font-mono">
-              <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em]">{config.year}</p>
-              <p className="text-xl font-black text-slate-800 tracking-tighter uppercase whitespace-nowrap">
-                {format(new Date(config.year, config.month - 1, 1), 'MMMM')}
-              </p>
-            </div>
-            <button onClick={nextMonth} aria-label={t('action.nextMonth')} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          </div>
+          <MonthYearPicker
+            year={config.year}
+            month={config.month}
+            onChange={setActiveMonth}
+            onPrev={prevMonth}
+            onNext={nextMonth}
+          />
           <div>
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">{t('payroll.title')}</h2>
             <p className="text-sm text-slate-500">{t('payroll.subtitle')}</p>

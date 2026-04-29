@@ -1,11 +1,11 @@
 import React, { useMemo, useEffect, useState, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Search, MousePointer2, Sparkles, Hash, AlertTriangle, X, Wrench, Wand2, Keyboard, Undo2, AlertOctagon, Printer } from 'lucide-react';
+import { ChevronLeft, Search, MousePointer2, Sparkles, Hash, AlertTriangle, X, Wrench, Wand2, Keyboard, Undo2, AlertOctagon, Printer, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { List, type RowComponentProps } from 'react-window';
 import { Employee, Shift, PublicHoliday, Config, Schedule } from '../types';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
-import { ScheduleCell } from '../components/Primitives';
+import { ScheduleCell, MonthYearPicker } from '../components/Primitives';
 import { computeEmployeeRunningStats, formatEmployeeStatsTooltip, EmployeeRunningStats } from '../lib/employeeStats';
 
 export type PaintMode = { shiftCode: string; stationId?: string } | null;
@@ -23,6 +23,14 @@ interface ScheduleTabProps {
   setScheduleFilter: (s: string) => void;
   scheduleRoleFilter: string;
   setScheduleRoleFilter: (s: string) => void;
+  // v2.2.0 — view-narrowing toggles. Surfaced as buttons next to the
+  // role-filter pill. Both are computed server-side (in App.tsx) before
+  // the filtered list lands here, so the grid just renders.
+  scheduleViolationsOnly: boolean;
+  setScheduleViolationsOnly: (v: boolean) => void;
+  scheduleGroupByStation: boolean;
+  setScheduleGroupByStation: (v: boolean) => void;
+  violationCount: number;
   rosterRoles: string[];
   scheduleUndoStack: Array<unknown>;
   prevMonth: () => void;
@@ -41,7 +49,13 @@ interface ScheduleTabProps {
   // the whole month.
   onUndoCell?: () => void;
   cellUndoDepth?: number;
-  onRunAuto: (mode?: 'fresh' | 'preserve') => void;
+  // v2.2.0 — range is an ISO-date pair (YYYY-MM-DD). Cross-month ranges
+  // (e.g. 2026-04-15 → 2026-05-15) are honoured; the App.tsx orchestrator
+  // splits the run into per-month invocations and stitches the rolling
+  // state across boundaries.
+  onRunAuto: (mode?: 'fresh' | 'preserve', range?: { start: string; end: string }) => void;
+  // v2.2.0 — fast non-adjacent month jump.
+  setActiveMonth: (year: number, month: number) => void;
   // v2.1.4 — auto-scheduler needs at least one employee AND one station
   // to have a chance of producing useful output. Pre-2.1.4 the buttons
   // fired regardless and either threw or surfaced an empty schedule with
@@ -152,8 +166,11 @@ function ScheduleRow({
 export function ScheduleTab({
   employees, filteredEmployees, shifts, holidays, config, schedule,
   paintMode, setPaintMode, scheduleFilter, setScheduleFilter,
-  scheduleRoleFilter, setScheduleRoleFilter, rosterRoles,
-  scheduleUndoStack, prevMonth, nextMonth, onCellClick, onCellRangeFill,
+  scheduleRoleFilter, setScheduleRoleFilter,
+  scheduleViolationsOnly, setScheduleViolationsOnly,
+  scheduleGroupByStation, setScheduleGroupByStation,
+  violationCount, rosterRoles,
+  scheduleUndoStack, prevMonth, nextMonth, setActiveMonth, onCellClick, onCellRangeFill,
   onUndo, onUndoCell, cellUndoDepth = 0, onRunAuto,
   canRunAuto, runAutoDisabledReason,
   paintWarnings, onDismissPaintWarnings, staleness, recentlyChangedCells,
@@ -361,18 +378,13 @@ export function ScheduleTab({
           xl: breakpoint and explicit flex-wrap let the toolbar wrap cleanly
           inside the padded area. */}
       <div className="flex flex-col xl:flex-row xl:flex-wrap xl:items-center xl:justify-between gap-4">
-        <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
-          <button onClick={prevMonth} aria-label={t('schedule.prevMonth')} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div className="text-center px-4 w-40">
-            <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{config.year}</p>
-            <h3 className="font-bold text-slate-800">{format(new Date(config.year, config.month - 1), 'MMMM')}</h3>
-          </div>
-          <button onClick={nextMonth} aria-label={t('schedule.nextMonth')} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
+        <MonthYearPicker
+          year={config.year}
+          month={config.month}
+          onChange={setActiveMonth}
+          onPrev={prevMonth}
+          onNext={nextMonth}
+        />
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
@@ -395,7 +407,50 @@ export function ScheduleTab({
             <option value="all">{t('schedule.allRoles')}</option>
             {rosterRoles.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
-          {(scheduleFilter || scheduleRoleFilter !== 'all') && (
+          {/* v2.2.0 — violations-only filter. Disabled when there are no
+              violations so the supervisor doesn't toggle to an empty grid
+              and wonder where everyone went. The count next to the label
+              is a quick signal of how much there is to act on. */}
+          <button
+            onClick={() => setScheduleViolationsOnly(!scheduleViolationsOnly)}
+            aria-pressed={scheduleViolationsOnly}
+            disabled={violationCount === 0 && !scheduleViolationsOnly}
+            title={violationCount === 0 ? t('schedule.filter.violations.empty') : t('schedule.filter.violations.tooltip')}
+            className={cn(
+              'px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center gap-1.5 border',
+              scheduleViolationsOnly
+                ? 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed',
+            )}
+          >
+            <AlertTriangle className="w-3 h-3" />
+            {t('schedule.filter.violations')}
+            {violationCount > 0 && (
+              <span className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] font-mono',
+                scheduleViolationsOnly ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700',
+              )}>{violationCount}</span>
+            )}
+          </button>
+          {/* v2.2.0 — group-by-station toggle. Sorts visible rows by
+              each employee's primary station (most-frequent in the
+              visible month) so the supervisor can scan station-by-
+              station coverage without re-architecting the grid. */}
+          <button
+            onClick={() => setScheduleGroupByStation(!scheduleGroupByStation)}
+            aria-pressed={scheduleGroupByStation}
+            title={t('schedule.filter.groupByStation.tooltip')}
+            className={cn(
+              'px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center gap-1.5 border',
+              scheduleGroupByStation
+                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
+            )}
+          >
+            <Wrench className="w-3 h-3" />
+            {t('schedule.filter.groupByStation')}
+          </button>
+          {(scheduleFilter || scheduleRoleFilter !== 'all' || scheduleViolationsOnly || scheduleGroupByStation) && (
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
               {filteredEmployees.length}/{employees.length}
             </span>
@@ -473,25 +528,15 @@ export function ScheduleTab({
             </button>
           )}
 
-          <button
-            onClick={() => onRunAuto('preserve')}
+          <AutoScheduleRangePicker
+            year={config.year}
+            month={config.month}
+            daysInMonth={config.daysInMonth}
             disabled={!canRunAuto}
-            title={canRunAuto ? t('action.runAutoSchedulePreserve.tooltip') : (runAutoDisabledReason || '')}
-            className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
-          >
-            <Wand2 className="w-4 h-4" />
-            {t('action.runAutoSchedulePreserve')}
-          </button>
-
-          <button
-            onClick={() => onRunAuto('fresh')}
-            disabled={!canRunAuto}
-            title={canRunAuto ? undefined : (runAutoDisabledReason || '')}
-            className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
-          >
-            <Sparkles className="w-4 h-4" />
-            {t('action.runAutoSchedule')}
-          </button>
+            disabledReason={runAutoDisabledReason}
+            onRunPreserve={(range) => onRunAuto('preserve', range)}
+            onRunFresh={(range) => onRunAuto('fresh', range)}
+          />
 
           <button
             onClick={() => window.print()}
@@ -726,6 +771,182 @@ export function ScheduleTab({
           );
         })()}
       </div>
+    </div>
+  );
+}
+
+// v2.2.0 — Auto-Schedule run UI with optional date range, including
+// cross-month ranges (e.g. 15 Apr → 15 May). Pre-2.2.0 the buttons ran
+// across the full active month unconditionally. The Calendar chevron
+// reveals start/end ISO dates; if both dates fall inside the active
+// month and span the whole month, the range is omitted (= existing
+// full-month behaviour). Cross-month ranges are split into per-month
+// invocations by the App.tsx orchestrator.
+function AutoScheduleRangePicker({
+  year, month, daysInMonth, disabled, disabledReason, onRunPreserve, onRunFresh,
+}: {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  disabled: boolean;
+  disabledReason?: string;
+  onRunPreserve: (range?: { start: string; end: string }) => void;
+  onRunFresh: (range?: { start: string; end: string }) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const monthFirst = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthLast = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+
+  const [startDate, setStartDate] = useState(monthFirst);
+  const [endDate, setEndDate] = useState(monthLast);
+
+  // Reset to the active month's bounds whenever the visible month
+  // changes — otherwise a stale window from a previous month would
+  // surprise the user when they next open the picker.
+  useEffect(() => {
+    setStartDate(monthFirst);
+    setEndDate(monthLast);
+  }, [monthFirst, monthLast]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  // Normalise: lo is always the earlier date, hi the later. The picker
+  // accepts swapped inputs gracefully so a typo doesn't error.
+  const [lo, hi] = startDate <= endDate ? [startDate, endDate] : [endDate, startDate];
+
+  const dayCount = (() => {
+    const a = new Date(lo);
+    const b = new Date(hi);
+    return Math.round((b.getTime() - a.getTime()) / 86400000) + 1;
+  })();
+
+  const isFullMonth = lo === monthFirst && hi === monthLast;
+  const crossesMonth = lo.slice(0, 7) !== hi.slice(0, 7);
+  const showPeriodHint = dayCount < 28;
+
+  // Range payload to forward to the orchestrator. Suppress when the
+  // range is exactly the active month so the existing full-month
+  // preview-and-apply path runs unchanged.
+  const buildRange = (): { start: string; end: string } | undefined =>
+    isFullMonth ? undefined : { start: lo, end: hi };
+
+  return (
+    <div ref={wrapRef} className="relative inline-flex items-center gap-2">
+      <button
+        onClick={() => onRunPreserve(buildRange())}
+        disabled={disabled}
+        title={disabled ? (disabledReason || '') : t('action.runAutoSchedulePreserve.tooltip')}
+        className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+      >
+        <Wand2 className="w-4 h-4" />
+        {t('action.runAutoSchedulePreserve')}
+      </button>
+
+      <button
+        onClick={() => onRunFresh(buildRange())}
+        disabled={disabled}
+        title={disabled ? (disabledReason || '') : undefined}
+        className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+      >
+        <Sparkles className="w-4 h-4" />
+        {t('action.runAutoSchedule')}
+      </button>
+
+      <button
+        onClick={() => setOpen(o => !o)}
+        disabled={disabled}
+        title={t('schedule.runAuto.range.tooltip')}
+        className={cn(
+          'p-2.5 rounded-xl border transition-all shadow-sm flex items-center gap-1',
+          isFullMonth
+            ? 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+          'disabled:opacity-40 disabled:cursor-not-allowed',
+        )}
+        aria-label={t('schedule.runAuto.range.tooltip')}
+      >
+        <Calendar className="w-4 h-4" />
+        {!isFullMonth && (
+          <span className="text-[10px] font-mono font-black">{lo.slice(5)}→{hi.slice(5)}</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute top-full mt-2 end-0 z-50 w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 space-y-3">
+          <div>
+            <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">{t('schedule.runAuto.range.title')}</p>
+            <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">{t('schedule.runAuto.range.body')}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 block">{t('schedule.runAuto.range.start')}</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 block">{t('schedule.runAuto.range.end')}</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+            <span>{t('schedule.runAuto.range.coverage')}</span>
+            <span className="font-mono text-slate-800">
+              {dayCount} {dayCount === 1 ? t('schedule.runAuto.range.day') : t('schedule.runAuto.range.days')}
+              {crossesMonth && ` · ${t('schedule.runAuto.range.crossesMonths')}`}
+            </span>
+          </div>
+          {showPeriodHint && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 leading-relaxed">
+              <AlertTriangle className="w-3 h-3 inline-block mr-1" />
+              {t('schedule.runAuto.range.minHint')}
+            </div>
+          )}
+          {crossesMonth && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-[10px] text-blue-800 leading-relaxed">
+              <Calendar className="w-3 h-3 inline-block mr-1" />
+              {t('schedule.runAuto.range.crossMonthNote')}
+            </div>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => { setStartDate(monthFirst); setEndDate(monthLast); setOpen(false); }}
+              className="flex-1 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+            >
+              {t('schedule.runAuto.range.fullMonth')}
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="flex-1 px-3 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all"
+            >
+              {t('action.done')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

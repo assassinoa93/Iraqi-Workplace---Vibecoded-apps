@@ -516,6 +516,10 @@ export interface AnnualRollupGroup {
   groupId: string;
   groupName: string;
   groupColor?: string;
+  // v2.2.0 — preset icon name (key into GROUP_ICON_PALETTE). Surfaces
+  // the chosen icon in the workforce-planning rollup so the group's
+  // visual identity matches its kanban header in the Stations tab.
+  groupIcon?: string;
   stationIds: string[];
   annualRequiredHours: number;
   peakMonthIndex: number;
@@ -929,6 +933,7 @@ export function buildAnnualRollup(annual: AnnualWorkforcePlan, employees: Employ
       groupId: grp.id,
       groupName: grp.name,
       groupColor: grp.color,
+      groupIcon: grp.icon,
       stationIds: memberStations.map(s => s.id),
       annualRequiredHours: annualReq,
       peakMonthIndex: peakIdx,

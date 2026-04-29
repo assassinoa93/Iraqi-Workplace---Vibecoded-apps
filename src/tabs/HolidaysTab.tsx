@@ -13,9 +13,14 @@ interface HolidaysTabProps {
   onEdit: (holi: PublicHoliday) => void;
   onDelete: (holi: PublicHoliday) => void;
   onUpdate: (holi: PublicHoliday) => void;
+  // v2.2.0 — bulk mode-set across every holiday in the list. Saves the
+  // supervisor from cycling 14 individual pills when the policy
+  // changes uniformly (e.g. switching the whole year to cash-ot during
+  // a peak season).
+  onSetAllCompModes: (mode: HolidayCompMode | undefined) => void;
 }
 
-export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUpdate }: HolidaysTabProps) {
+export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUpdate, onSetAllCompModes }: HolidaysTabProps) {
   const { t } = useI18n();
   const defaultMode = config.holidayCompMode ?? 'comp-day';
 
@@ -28,18 +33,49 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-tight">{t('holidays.title')}</h3>
           <p className="text-xs text-slate-400 font-medium tracking-widest font-mono leading-none">{t('holidays.subtitle')}</p>
         </div>
-        <button
-          onClick={onAddNew}
-          className="flex items-center gap-2 bg-red-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg font-mono"
-        >
-          <Plus className="w-4 h-4" />
-          {t('holidays.new')}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* v2.2.0 — bulk-set every holiday at once. Useful when the
+              supervisor wants to flip the whole year to cash-ot during
+              a peak quarter, then back to inherit afterwards. */}
+          {holidays.length > 0 && (
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-2">{t('holidays.bulk.label')}</span>
+              <button
+                onClick={() => onSetAllCompModes(undefined)}
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:bg-slate-100 transition-all"
+                title={t('holidays.bulk.inherit.tooltip')}
+              >
+                {t('holidays.compMode.inherit')}
+              </button>
+              <button
+                onClick={() => onSetAllCompModes('comp-day')}
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-emerald-700 hover:bg-emerald-50 transition-all"
+                title={t('holidays.bulk.compDay.tooltip')}
+              >
+                {t('holidays.compMode.compDay')}
+              </button>
+              <button
+                onClick={() => onSetAllCompModes('cash-ot')}
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-amber-700 hover:bg-amber-50 transition-all"
+                title={t('holidays.bulk.cashOt.tooltip')}
+              >
+                {t('holidays.compMode.cashOt')}
+              </button>
+            </div>
+          )}
+          <button
+            onClick={onAddNew}
+            className="flex items-center gap-2 bg-red-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg font-mono"
+          >
+            <Plus className="w-4 h-4" />
+            {t('holidays.new')}
+          </button>
+        </div>
       </div>
 
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-[11px] text-slate-600 leading-relaxed">
@@ -53,7 +89,7 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
           const effMode: HolidayCompMode = holi.compMode ?? defaultMode;
           const isOverride = holi.compMode !== undefined;
           return (
-            <Card key={holi.date} className="p-6 relative group border-slate-200">
+            <Card key={holi.id ?? holi.date} className="p-6 relative group border-slate-200">
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center text-red-600 border border-red-100 shadow-sm">
                   <Calendar className="w-6 h-6" />

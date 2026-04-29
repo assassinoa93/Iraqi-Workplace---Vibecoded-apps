@@ -1,5 +1,5 @@
-import React from 'react';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getShiftColor } from '../lib/colors';
 import { useI18n } from '../lib/i18n';
@@ -46,6 +46,168 @@ export const Card: React.FC<{ children: React.ReactNode; className?: string }> =
     {children}
   </div>
 );
+
+// v2.2.0 — current / recommended comparative KPI. Used on the Workforce
+// Planning rollup so the supervisor reads "5 / 9" at a glance instead of
+// hunting two separate KpiBlocks for the same delta. The recommended
+// number is tinted to match the action tone (rose for hire, slate for
+// hold) and the breakdown text below disambiguates FTE vs PT.
+export function ComparativeKpi({
+  label, current, recommended, breakdown, deltaHint, tone = 'neutral',
+}: {
+  label: string;
+  current: number | string;
+  recommended: number | string;
+  breakdown?: string;
+  deltaHint?: string;
+  tone?: 'emerald' | 'blue' | 'rose' | 'neutral';
+}) {
+  const recClass =
+    tone === 'emerald' ? 'text-emerald-700'
+    : tone === 'blue' ? 'text-blue-700'
+    : tone === 'rose' ? 'text-rose-700'
+    : 'text-slate-800';
+  return (
+    <div>
+      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-2xl font-black tabular-nums">
+        <span className="text-slate-500">{current}</span>
+        <span className="text-slate-300 mx-1">/</span>
+        <span className={recClass}>{recommended}</span>
+      </p>
+      {(breakdown || deltaHint) && (
+        <p className="text-[9px] text-slate-500 mt-0.5 leading-tight">
+          {breakdown}
+          {breakdown && deltaHint ? ' · ' : ''}
+          {deltaHint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// v2.2.0 — month + year navigator. Replaces the prev/next-only chevrons
+// across the Schedule, Dashboard, Payroll, Coverage&OT and Workforce tabs
+// so jumping from Jan to Dec is one click instead of twelve. The chevrons
+// stay (incremental nav is still nice for adjacent months); clicking the
+// month/year text in the middle pops a year-stepper + 4×3 month grid.
+const MONTH_KEYS = [
+  'common.month.short.jan', 'common.month.short.feb', 'common.month.short.mar', 'common.month.short.apr',
+  'common.month.short.may', 'common.month.short.jun', 'common.month.short.jul', 'common.month.short.aug',
+  'common.month.short.sep', 'common.month.short.oct', 'common.month.short.nov', 'common.month.short.dec',
+];
+
+export function MonthYearPicker({
+  year, month, onChange, onPrev, onNext,
+}: {
+  year: number;
+  month: number; // 1..12
+  onChange: (year: number, month: number) => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const { t, dir } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [draftYear, setDraftYear] = useState(year);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset drafted year whenever the popover opens so the year matches what
+  // the user is currently viewing — surprising otherwise after navigating
+  // away and back.
+  useEffect(() => {
+    if (open) setDraftYear(year);
+  }, [open, year]);
+
+  // Click-outside dismissal — closes when the user clicks anywhere outside
+  // the wrapper (including pressing the date card in another tab in the
+  // same component, which never re-renders the wrapper but still escapes
+  // the popover).
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  const monthName = t(MONTH_KEYS[month - 1]);
+
+  return (
+    <div ref={wrapRef} className="relative flex items-center gap-4 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
+      <button
+        onClick={onPrev}
+        aria-label={t('action.prevMonth')}
+        className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
+      >
+        {dir === 'rtl' ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+      </button>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title={t('common.monthPicker.tooltip')}
+        className="text-center px-4 w-40 font-mono hover:bg-slate-50 rounded-xl py-1 transition-colors cursor-pointer"
+      >
+        <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em]">{year}</p>
+        <p className="text-xl font-black text-slate-800 tracking-tighter uppercase whitespace-nowrap">{monthName}</p>
+      </button>
+      <button
+        onClick={onNext}
+        aria-label={t('action.nextMonth')}
+        className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
+      >
+        {dir === 'rtl' ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+      </button>
+
+      {open && (
+        <div className="absolute top-full mt-2 start-0 z-50 w-72 bg-white rounded-2xl border border-slate-200 shadow-2xl p-3" role="dialog" aria-label={t('common.monthPicker.aria')}>
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => setDraftYear(y => y - 1)}
+              aria-label={t('common.monthPicker.prevYear')}
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+            >
+              {dir === 'rtl' ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            </button>
+            <p className="text-sm font-black text-slate-800 font-mono tracking-tight">{draftYear}</p>
+            <button
+              onClick={() => setDraftYear(y => y + 1)}
+              aria-label={t('common.monthPicker.nextYear')}
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+            >
+              {dir === 'rtl' ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {MONTH_KEYS.map((key, i) => {
+              const m = i + 1;
+              const isActive = draftYear === year && m === month;
+              return (
+                <button
+                  key={key}
+                  onClick={() => { onChange(draftYear, m); setOpen(false); }}
+                  className={cn(
+                    'px-2 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all',
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100',
+                  )}
+                >
+                  {t(key)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Sidebar section header used to group navigation tabs by purpose
 // (Operations / Analytics / Setup / System). Renders a small caps label

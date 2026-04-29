@@ -2,6 +2,45 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v2.2.0 — 2026-04-29
+
+**Big UX sprint.** Eleven user-driven items spanning the workforce planner, schedule grid, employee setup, station groups, auto-scheduler, holiday admin, and Electron shell. Compliance philosophy unchanged (reporting not enforcement); no breaking schema changes.
+
+**Workforce Planning**
+- **Comparative current/recommended rollup format.** Group + station rollup rows now lead with a single `current / recommended` ComparativeKpi block (e.g. "5 / 9 — 7 FTE + 2 PT, +4 to hire") instead of three separate KPIs (Eligible Now, Recommended FTE, Recommended PT). The expanded station drilldown inside group rows mirrors the same comparative pattern. New `ComparativeKpi` component lives in `components/Primitives.tsx` and is reused by both rollup rows. Ideal-only view is unchanged — it suppresses the comparative since there's nothing to compare against.
+- **Bar-click drilldown panel.** Pre-2.2.0 clicking a month bar in the monthly demand chart only highlighted the bar with no surfaced detail (effectively a no-op from the user's POV). The new `MonthDrilldownPanel` reveals on click: month name + peak/valley badge, required hours for the month, recommended FTE+PT roster, monthly salary, % of peak demand, and a top-3 roles bar showing which roles drive the demand. Helps answer "why does August spike?" without leaving the planning view.
+
+**Station groups**
+- **Preset icon picker.** New `StationGroup.icon` field carrying one of 20 curated lucide icon names (`boxes` / `cart` / `coffee` / `truck` / `car` / `building` / `wrench` / `cpu` / `phone` / `monitor` / `lock` / `heart` / `headphones` / `briefcase` / `activity` / `users` / `package` / `zap` / `store` / `utensils`). Picker UI in `LayoutTab` New-Group form + click-the-tile popover on existing kanban headers (`GroupIconButton`). The chosen icon also propagates through `AnnualRollupGroup.groupIcon` to the workforce-planning rollup so a group's visual identity is consistent across views. Migration normalizer round-trips the field; pre-2.2.0 groups fall back to the default `boxes` glyph.
+
+**Schedule grid**
+- **Violations-only filter.** New toolbar button next to the role filter. Narrows the visible roster to employees with at least one `severity:'violation'` finding in the active month (info findings don't count). Shows the violation count as a badge; disables when there are no violations to filter so the user doesn't toggle to an empty grid and wonder where everyone went.
+- **Group-by-station view.** New toolbar button. Sorts visible rows by each employee's primary station (= the stationId they're assigned to most often in the visible month); employees with no station assignments fall to the bottom. Lets the supervisor scan station-by-station coverage without re-architecting the grid into a station×day pivot.
+
+**Month / year picker**
+- Replaces the prev/next-only chevrons across the Schedule, Dashboard, Payroll, and Coverage&OT tabs with a shared `MonthYearPicker` component. Clicking the date card opens a 4×3 month grid + year stepper. Jumping Jan→Dec is one click instead of twelve. The chevrons still step ±1 month for adjacent navigation. Logical RTL — chevrons flip direction in Arabic. New `setActiveMonth(year, month)` setter centralises the cell-undo-stack reset and `daysInMonth` recompute that the prev/next helpers used to duplicate. WorkforcePlanningTab dropped its dead `prevMonth`/`nextMonth` props (it's annual-only).
+
+**Auto-scheduler**
+- **Custom date range, including cross-month.** New `RunArgs.startDay` / `RunArgs.endDay` (defaults to 1 / `daysInMonth`); the day loop iterates only the picked range; out-of-range cells are preserved unchanged in both fresh and preserve modes. UI is a `Calendar` chevron next to the Auto-Schedule buttons that opens a start/end *date* picker (HTML `<input type="date">`), day-count summary, "minimum 28-day" hint, and a "Reset to full month" shortcut. **Cross-month ranges work too** — `App.tsx` orchestrates per-month invocations, stitches the running `allSchedules` between calls so each subsequent month's rolling-7-day window sees the trailing days of the prior month, threads `updatedEmployees` through (so holiday-bank counters etc. accumulate), and applies directly with a summary toast (multi-month preview would be too dense). Within-month ranges still go through the regular preview-then-apply flow with day clamps. Picking a single-month range that targets a different month than the one currently displayed switches the active month before running so the preview makes sense.
+
+**Employee setup**
+- **Station group eligibility.** New section in `EmployeeModal` above the per-station eligibility chips, letting the supervisor pick station groups instead. Toggles each group's id in/out of `Employee.eligibleGroups`; the auto-scheduler already treats this as "open eligibility for any station in this group". Newly-added stations inside a chosen group inherit eligibility automatically — no need to revisit every employee's profile when expanding the kanban. Section is hidden when no groups are defined so single-group venues don't see clutter.
+
+**Shifts**
+- **System shifts locked from accidental edits.** The `OFF / CP / AL / SL / MAT / PH` codes drive the auto-scheduler, leave system, and comp-day rotation; their `isWork` / `isHazardous` flags must match the engine's expectations. New `lib/systemShifts.ts` exports `SYSTEM_SHIFT_CODES` + `isSystemShift()` (extracted from the inline `App.tsx` set). On the Shifts tab, system shifts now show a lock icon instead of a delete button (deletion was already blocked by an info-only confirm modal — exposing the trash icon implied otherwise). In `ShiftModal`, the two toggles are replaced with a read-only summary line + lock chip; display name, times, break, and description remain editable for the rare cosmetic tweak.
+
+**Holidays**
+- **Bulk compMode set.** Three new pills in the Holidays tab header — `Inherit` / `Comp day` / `Cash 2×` — flip every holiday's mode at once. Saves the supervisor from cycling 14 individual pills when peak-season policy changes uniformly (e.g. switching the whole year to cash-ot for Q4 then back to inherit afterwards).
+- **Stable holiday `id`.** Pre-2.2.0 holidays were keyed by `date` (the field that's *also* user-editable). Editing a holiday's date orphaned the entry — `findIndex(h => h.date === editingDate)` failed once the date had changed, and a subsequent import with the original date would silently overwrite a different holiday. New `PublicHoliday.id` field; the migration normalizer backfills `id = date` for legacy records (so existing entries keep their identity), `HolidayModal`'s `empty()` factory mints `holi-{timestamp}-{rand}`, and App.tsx's save / update / delete paths all match by id with a defensive `id ?? date` fallback. Library functions (compliance, OT, PDF report) still key off `date` for "is this calendar day a holiday" — that semantic is unchanged. Optional in the type to keep test fixtures lightweight.
+
+**Electron**
+- **Taskbar minimize fix.** Pre-2.2.0 [electron/main.cjs:235-238](electron/main.cjs#L235) intercepted the minimize event and called `mainWindow.hide()`, which removed the window from the taskbar entirely — so a second taskbar-click sent the window to the system tray instead of restoring it. v2.2.0 lets Windows handle minimize natively (window stays in the taskbar). The tray remains the path for FULL hiding via the close button + `tray > Open` to bring it back.
+
+**Tests** — 108 passing, no test changes (the additions are mostly UI restructuring + new optional fields; the auto-scheduler range parameter is a clamped iteration with passthrough behaviour at the defaults).
+
+**Migration**
+- Pre-2.2.0 backups load cleanly. New optional fields (`StationGroup.icon`, `Employee.eligibleGroups` already existed since v1.16) default to undefined and the renderer falls back gracefully (boxes icon, no group eligibility). The auto-scheduler's new `startDay`/`endDay` are optional with defaults to the full month, so existing runs are byte-identical.
+
 ## v2.1.4 — 2026-04-29
 
 **Audit follow-up.** A wider review of v2.1.3 surfaced seven items worth shipping in their own batch — one data-loss bug, one consistency bug, two UX defaults that read as broken, and an i18n sweep across five surfaces.

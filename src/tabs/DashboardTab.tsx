@@ -1,13 +1,13 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronLeft, ChevronRight, Database, BarChart3, X,
+  Database, BarChart3, X,
   ShieldAlert, Clock, ShieldCheck, AlertCircle, TrendingUp,
   Briefcase, Plus, CheckCircle2, Circle,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Employee, Shift, PublicHoliday, Config, Violation, Schedule, Station } from '../types';
-import { Card, KpiCard } from '../components/Primitives';
+import { Card, KpiCard, MonthYearPicker } from '../components/Primitives';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
 import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap } from '../lib/payroll';
@@ -40,6 +40,7 @@ interface DashboardTabProps {
   setIsStatsModalOpen: (b: boolean) => void;
   prevMonth: () => void;
   nextMonth: () => void;
+  setActiveMonth: (year: number, month: number) => void;
   onGoToRoster: () => void;
   onLoadSample: () => void;
   // Identifies which company we're recording the compliance trend for. The
@@ -60,7 +61,7 @@ export function DashboardTab(props: DashboardTabProps) {
     violations, staffingGapsByStation, hourlyCoverage,
     peakStabilityPercent, overallCoveragePercent,
     isStatsModalOpen, setIsStatsModalOpen,
-    prevMonth, nextMonth, onGoToRoster, onLoadSample,
+    prevMonth, nextMonth, setActiveMonth, onGoToRoster, onLoadSample,
     activeCompanyId, isPeakDay,
   } = props;
   const { t } = useI18n();
@@ -155,20 +156,13 @@ export function DashboardTab(props: DashboardTabProps) {
   return (
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row items-center justify-between gap-4 mb-2">
-        <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
-          <button onClick={prevMonth} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div className="text-center px-4 w-40 font-mono">
-            <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em]">{config.year}</p>
-            <p className="text-xl font-black text-slate-800 tracking-tighter uppercase whitespace-nowrap">
-              {format(new Date(config.year, config.month - 1, 1), 'MMMM')}
-            </p>
-          </div>
-          <button onClick={nextMonth} className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors">
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
+        <MonthYearPicker
+          year={config.year}
+          month={config.month}
+          onChange={setActiveMonth}
+          onPrev={prevMonth}
+          onNext={nextMonth}
+        />
 
         <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm">
           <button

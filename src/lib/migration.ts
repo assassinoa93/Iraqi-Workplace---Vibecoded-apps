@@ -136,20 +136,30 @@ export function normalizeStation(raw: Partial<Station> & Record<string, unknown>
 // v1.16: station groups are persisted alongside stations. Pre-1.16 saves
 // don't include this list — defaults to empty so consumers can treat it
 // uniformly without null-checks.
-export function normalizeStationGroup(raw: Record<string, unknown>): { id: string; name: string; color?: string; description?: string } {
+export function normalizeStationGroup(raw: Record<string, unknown>): { id: string; name: string; color?: string; description?: string; icon?: string } {
   return {
     id: String(raw.id ?? ''),
     name: String(raw.name ?? ''),
     color: typeof raw.color === 'string' ? raw.color : undefined,
     description: typeof raw.description === 'string' ? raw.description : undefined,
+    // v2.2.0 — preset icon name. Pre-2.2.0 groups carry undefined and the
+    // renderer falls back to the default `boxes` glyph.
+    icon: typeof raw.icon === 'string' ? raw.icon : undefined,
   };
 }
 
 // ─── Holiday ─────────────────────────────────────────────────────────────────
 export function normalizeHoliday(raw: Partial<PublicHoliday> & Record<string, unknown>): PublicHoliday {
   const compMode = raw.compMode === 'cash-ot' || raw.compMode === 'comp-day' ? raw.compMode : undefined;
+  // v2.2.0 — stable id. Backfill from `date` when missing so legacy
+  // records continue to look up the same way under their existing date
+  // string (no surprise reshuffling), while a user re-dating an entry
+  // post-2.2.0 keeps its identity stable across the rename.
+  const date = String(raw.date ?? '');
+  const id = typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : (date || `holi-${Math.random().toString(36).slice(2, 10)}`);
   return {
-    date: String(raw.date ?? ''),
+    id,
+    date,
     name: String(raw.name ?? ''),
     type: String(raw.type ?? 'National'),
     legalReference: String(raw.legalReference ?? 'Art. 74'),
