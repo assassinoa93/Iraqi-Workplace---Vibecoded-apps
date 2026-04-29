@@ -1,4 +1,5 @@
-import { Employee, Config } from '../types';
+import { Employee, Config, Schedule, Shift } from '../types';
+import { getEmployeeLeaveOnDate } from './leaves';
 
 // Single fallback used when an employee record predates the salary field
 // (legacy CSV imports, very old backups). Real records always have
@@ -35,4 +36,35 @@ export function baseHourlyRate(
 // overtime under Iraqi labor law (Art. 70).
 export function monthlyHourCap(config: Pick<Config, 'standardWeeklyHrsCap'>): number {
   return config.standardWeeklyHrsCap * 4;
+}
+
+// Sum of worked hours for an employee in the active month with
+// leave-overlap days excluded. v2.1.3: a v1.6 backup may carry a legacy
+// `annualLeaveStart/End` field that the schedule grid was never
+// re-painted to honour — the cell still contains the pre-leave shift
+// code. Reading the schedule blindly would inflate Net Payable (and
+// over-cap OT) by the legacy leave hours. The leave check delegates to
+// `getEmployeeLeaveOnDate` so it covers both v1.7 multi-range
+// `leaveRanges` and the legacy single-range fields uniformly.
+export function computeWorkedHours(
+  emp: Employee,
+  schedule: Schedule,
+  shifts: Shift[],
+  config: Pick<Config, 'year' | 'month'>,
+): number {
+  const empSched = schedule[emp.empId] || {};
+  const shiftByCode = new Map(shifts.map(s => [s.code, s]));
+  const yyyy = String(config.year);
+  const mm = String(config.month).padStart(2, '0');
+  let total = 0;
+  for (const [dayStr, entry] of Object.entries(empSched)) {
+    const day = Number(dayStr);
+    if (!Number.isFinite(day)) continue;
+    const shift = shiftByCode.get(entry.shiftCode);
+    if (!shift?.isWork) continue;
+    const dateStr = `${yyyy}-${mm}-${String(day).padStart(2, '0')}`;
+    if (getEmployeeLeaveOnDate(emp, dateStr)) continue;
+    total += shift.durationHrs;
+  }
+  return total;
 }

@@ -1,7 +1,45 @@
 import React from 'react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getShiftColor } from '../lib/colors';
 import { useI18n } from '../lib/i18n';
+
+export type SortDir = 'asc' | 'desc';
+
+// Header cell that toggles sort direction. Click once to sort ascending,
+// twice to flip to descending. The same control is used by RosterTab,
+// PayrollTab and ShiftsTab — a string sortKey keeps it generic without
+// pulling tab-specific union types into this file.
+export function SortableHeader({
+  label, sortKey, currentKey, direction, onSort, align = 'start', className,
+}: {
+  label: string;
+  sortKey: string;
+  currentKey: string | null;
+  direction: SortDir;
+  onSort: (k: string) => void;
+  align?: 'start' | 'center' | 'end';
+  className?: string;
+}) {
+  const active = currentKey === sortKey;
+  const justify = align === 'center' ? 'justify-center' : align === 'end' ? 'justify-end' : 'justify-start';
+  return (
+    <th className={cn('px-6 py-3 tracking-wider', className)}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          'inline-flex items-center gap-1 uppercase font-black tracking-wider text-[10px] hover:text-slate-700 transition-colors w-full',
+          justify,
+          active ? 'text-slate-700' : 'text-slate-400',
+        )}
+      >
+        {label}
+        {active && (direction === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+      </button>
+    </th>
+  );
+}
 
 export const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
   <div className={cn("bg-white rounded border border-slate-200 shadow-sm overflow-hidden", className)}>
@@ -96,7 +134,7 @@ export function ScheduleCell({
   );
 }
 
-export function SettingField({ label, value, onChange, type = 'text', options }: { label: string; value: any; onChange: (v: string) => void; type?: 'text' | 'number' | 'select' | 'time'; options?: string[] }) {
+export function SettingField({ label, value, onChange, type = 'text', options }: { label: string; value: any; onChange: (v: string) => void; type?: 'text' | 'number' | 'select' | 'time' | 'date'; options?: string[] }) {
   return (
     <div className="space-y-2">
       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</label>

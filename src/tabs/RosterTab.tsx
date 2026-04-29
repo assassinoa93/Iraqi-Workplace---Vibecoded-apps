@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Trash2, Plus, Users, Edit3, ChevronUp, ChevronDown, CalendarRange } from 'lucide-react';
+import { Search, Trash2, Plus, Users, Edit3, CalendarRange } from 'lucide-react';
 import { Employee, Station, StationGroup } from '../types';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
+import { SortableHeader, SortDir } from '../components/Primitives';
 
 interface RosterTabProps {
   employees: Employee[];
@@ -26,30 +27,6 @@ interface RosterTabProps {
 }
 
 type SortKey = 'empId' | 'name' | 'role';
-type SortDir = 'asc' | 'desc';
-
-// Header cell that toggles sort direction. Click once to sort ascending,
-// twice to flip to descending. Visual indicator follows the same convention.
-function SortableHeader({
-  label, sortKey, currentKey, direction, onSort,
-}: { label: string; sortKey: SortKey; currentKey: SortKey | null; direction: SortDir; onSort: (k: SortKey) => void }) {
-  const active = currentKey === sortKey;
-  return (
-    <th className="px-6 py-3 tracking-wider">
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className={cn(
-          "inline-flex items-center gap-1 uppercase font-black tracking-wider text-[10px] hover:text-slate-700 transition-colors",
-          active ? "text-slate-700" : "text-slate-400",
-        )}
-      >
-        {label}
-        {active && (direction === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-      </button>
-    </th>
-  );
-}
 
 export function RosterTab({
   employees, stations, stationGroups = [], searchTerm, setSearchTerm,
@@ -70,9 +47,9 @@ export function RosterTab({
     return Array.from(set).sort();
   }, [employees]);
 
-  const handleSort = (k: SortKey) => {
+  const handleSort = (k: string) => {
     if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(k); setSortDir('asc'); }
+    else { setSortKey(k as SortKey); setSortDir('asc'); }
   };
 
   // Filter (search + role) then sort. Done in a memo so re-renders driven by

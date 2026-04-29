@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Plus, Clock, ChevronUp, ChevronDown, Settings, Trash2 } from 'lucide-react';
 import { Shift } from '../types';
-import { Card } from '../components/Primitives';
+import { Card, SortableHeader, SortDir } from '../components/Primitives';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
 
@@ -13,8 +13,46 @@ interface ShiftsTabProps {
   onMove: (index: number, direction: 'up' | 'down') => void;
 }
 
+type ShiftSortKey = 'code' | 'name' | 'hours' | 'status';
+
 export function ShiftsTab({ shifts, onAddNew, onEdit, onDelete, onMove }: ShiftsTabProps) {
   const { t } = useI18n();
+  const [sortKey, setSortKey] = useState<ShiftSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const handleSort = (k: string) => {
+    if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k as ShiftSortKey); setSortDir('asc'); }
+  };
+
+  // Pair each shift with its underlying index — needed because the
+  // reorder buttons act on the original `shifts` array index, but the
+  // visible row may be at a different position once a sort is applied.
+  // Rendering still uses the visible row index for keyboard order so the
+  // user sees what they're acting on, but `onMove` always gets the
+  // canonical index.
+  const visible = useMemo(() => {
+    const indexed = shifts.map((s, originalIndex) => ({ shift: s, originalIndex }));
+    if (!sortKey) return indexed;
+    const dirMul = sortDir === 'asc' ? 1 : -1;
+    const sorted = [...indexed].sort((a, b) => {
+      let va: number | string;
+      let vb: number | string;
+      switch (sortKey) {
+        case 'code': va = a.shift.code.toLowerCase(); vb = b.shift.code.toLowerCase(); break;
+        case 'name': va = a.shift.name.toLowerCase(); vb = b.shift.name.toLowerCase(); break;
+        case 'hours': va = a.shift.durationHrs; vb = b.shift.durationHrs; break;
+        case 'status': va = a.shift.isWork ? 1 : 0; vb = b.shift.isWork ? 1 : 0; break;
+      }
+      if (va < vb) return -1 * dirMul;
+      if (va > vb) return 1 * dirMul;
+      return 0;
+    });
+    return sorted;
+  }, [shifts, sortKey, sortDir]);
+
+  const sortActive = sortKey !== null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -32,16 +70,16 @@ export function ShiftsTab({ shifts, onAddNew, onEdit, onDelete, onMove }: Shifts
         <table className="w-full text-start text-sm">
           <thead className="bg-slate-50 text-[11px] uppercase text-slate-500 font-bold border-b border-slate-200">
             <tr>
-              <th className="px-6 py-4 tracking-wider">{t('shifts.col.code')}</th>
-              <th className="px-6 py-4 tracking-wider">{t('shifts.col.name')}</th>
-              <th className="px-6 py-4 tracking-wider">{t('shifts.col.hours')}</th>
-              <th className="px-6 py-4 tracking-wider text-center">{t('shifts.col.status')}</th>
-              <th className="px-6 py-4 tracking-wider text-center w-24">{t('shifts.col.order')}</th>
-              <th className="px-6 py-4 tracking-wider text-end">{t('shifts.col.actions')}</th>
+              <SortableHeader label={t('shifts.col.code')} sortKey="code" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+              <SortableHeader label={t('shifts.col.name')} sortKey="name" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+              <SortableHeader label={t('shifts.col.hours')} sortKey="hours" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+              <SortableHeader label={t('shifts.col.status')} sortKey="status" currentKey={sortKey} direction={sortDir} onSort={handleSort} align="center" />
+              <th className="px-6 py-4 tracking-wider text-center w-24 text-[10px] font-black text-slate-400">{t('shifts.col.order')}</th>
+              <th className="px-6 py-4 tracking-wider text-end text-[10px] font-black text-slate-400">{t('shifts.col.actions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {shifts.map((s, i) => (
+            {visible.map(({ shift: s, originalIndex }) => (
               <tr key={s.code} className="hover:bg-slate-50/50 transition-colors">
                 <td className="px-6 py-4 font-mono text-xs font-bold text-blue-600">{s.code}</td>
                 <td className="px-6 py-4">
@@ -59,18 +97,23 @@ export function ShiftsTab({ shifts, onAddNew, onEdit, onDelete, onMove }: Shifts
                   </span>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="flex flex-col items-center gap-1">
+                  {/* Reorder buttons act on the canonical (unsorted) index.
+                      Disabled while a sort is active so the visible row
+                      doesn't appear to move "wrong" — the up/down would
+                      swap underlying positions while the sort keeps the
+                      visible order, which reads as a non-response. */}
+                  <div className="flex flex-col items-center gap-1" title={sortActive ? t('shifts.reorder.disabled.sortActive') : undefined}>
                     <button
-                      disabled={i === 0}
-                      onClick={() => onMove(i, 'up')}
+                      disabled={sortActive || originalIndex === 0}
+                      onClick={() => onMove(originalIndex, 'up')}
                       aria-label={`${t('shifts.moveUp')}: ${s.code}`}
                       className="p-1 text-slate-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <ChevronUp className="w-3 h-3" />
                     </button>
                     <button
-                      disabled={i === shifts.length - 1}
-                      onClick={() => onMove(i, 'down')}
+                      disabled={sortActive || originalIndex === shifts.length - 1}
+                      onClick={() => onMove(originalIndex, 'down')}
                       aria-label={`${t('shifts.moveDown')}: ${s.code}`}
                       className="p-1 text-slate-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed"
                     >

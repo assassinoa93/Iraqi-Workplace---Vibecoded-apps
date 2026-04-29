@@ -1,14 +1,18 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { Download, Calendar, ChevronLeft, ChevronRight, Upload, FileSpreadsheet } from 'lucide-react';
 import { format } from 'date-fns';
 import { Employee, PublicHoliday, Schedule, Shift, Config } from '../types';
-import { Card } from '../components/Primitives';
+import { Card, SortableHeader, SortDir } from '../components/Primitives';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
-import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap } from '../lib/payroll';
+import { DEFAULT_MONTHLY_SALARY_IQD, baseHourlyRate, monthlyHourCap, computeWorkedHours } from '../lib/payroll';
 import { LeaveManagerModal } from '../components/LeaveManagerModal';
 import { listAllLeaveRangesIncludingPainted } from '../lib/leaves';
-import { computeHolidayPay } from '../lib/holidayCompPay';
+import { computeHolidayPay, HolidayPayBreakdown } from '../lib/holidayCompPay';
+
+type PayrollSortKey =
+  | 'name' | 'totalHours' | 'holidayBank' | 'annualLeave'
+  | 'baseMonthly' | 'hourlyRate' | 'otAmount' | 'netPayable';
 
 interface PayrollTabProps {
   employees: Employee[];
@@ -60,18 +64,75 @@ const parseCSVLine = (line: string): string[] => {
 
 export function PayrollTab({ employees, schedule, shifts, holidays, config, allSchedules, onExport, onUpdateEmployee, prevMonth, nextMonth }: PayrollTabProps) {
   const { t } = useI18n();
-  const holidayDates = new Set(holidays.map(h => h.date));
-  const shiftByCode = new Map(shifts.map(s => [s.code, s]));
   const [leaveEditFor, setLeaveEditFor] = useState<Employee | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<PayrollSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const handleSort = (k: string) => {
+    if (sortKey === k) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(k as PayrollSortKey); setSortDir('asc'); }
+  };
+
+  // Compute every per-employee payroll figure once. Sorting then reads
+  // straight from this array — no need to recompute holiday breakdowns
+  // or hourly rate per sort change.
+  type Row = {
+    emp: Employee;
+    totalHours: number;
+    baseMonthly: number;
+    hourlyRate: number;
+    standardOTHours: number;
+    standardOTPay: number;
+    holidayBreakdown: HolidayPayBreakdown;
+    otAmount: number;
+    netPayable: number;
+  };
+  const rows = useMemo<Row[]>(() => {
+    const cap = monthlyHourCap(config);
+    return employees.map(emp => {
+      const totalHours = computeWorkedHours(emp, schedule, shifts, config);
+      const baseMonthly = emp.baseMonthlySalary || DEFAULT_MONTHLY_SALARY_IQD;
+      const hourlyRate = baseHourlyRate(emp, config);
+      const holidayBreakdown = computeHolidayPay(emp, schedule, shifts, holidays, config, hourlyRate, allSchedules);
+      const standardOTHours = Math.max(0, totalHours - cap - holidayBreakdown.premiumHolidayHours);
+      const standardOTPay = standardOTHours * hourlyRate * (config.otRateDay ?? 1.5);
+      const otAmount = standardOTPay + holidayBreakdown.premiumPay;
+      const netPayable = baseMonthly + otAmount;
+      return { emp, totalHours, baseMonthly, hourlyRate, standardOTHours, standardOTPay, holidayBreakdown, otAmount, netPayable };
+    });
+  }, [employees, schedule, shifts, holidays, config, allSchedules]);
+
+  const sortedRows = useMemo<Row[]>(() => {
+    if (!sortKey) return rows;
+    const dirMul = sortDir === 'asc' ? 1 : -1;
+    const sorted = [...rows].sort((a, b) => {
+      let va: number | string;
+      let vb: number | string;
+      switch (sortKey) {
+        case 'name': va = a.emp.name.toLowerCase(); vb = b.emp.name.toLowerCase(); break;
+        case 'totalHours': va = a.totalHours; vb = b.totalHours; break;
+        case 'holidayBank': va = a.emp.holidayBank; vb = b.emp.holidayBank; break;
+        case 'annualLeave': va = a.emp.annualLeaveBalance; vb = b.emp.annualLeaveBalance; break;
+        case 'baseMonthly': va = a.baseMonthly; vb = b.baseMonthly; break;
+        case 'hourlyRate': va = a.hourlyRate; vb = b.hourlyRate; break;
+        case 'otAmount': va = a.otAmount; vb = b.otAmount; break;
+        case 'netPayable': va = a.netPayable; vb = b.netPayable; break;
+      }
+      if (va < vb) return -1 * dirMul;
+      if (va > vb) return 1 * dirMul;
+      return 0;
+    });
+    return sorted;
+  }, [rows, sortKey, sortDir]);
 
   // Per-row CSV export. Columns map 1:1 to the visible payroll table so
   // the user can paste into HRIS systems (SAP, Kayan HR) where the
   // column names match. Numeric fields are unformatted (raw IQD / hours)
-  // for clean import.
+  // for clean import. Honours the active sort so the export matches what
+  // the user sees on screen.
   const exportPayrollCSV = () => {
-    const cap = monthlyHourCap(config);
     const headers = [
       'Employee ID', 'Name', 'Total Hours', 'Holiday Bank Days', 'Annual Leave Days',
       'Base Monthly Salary', 'Hourly Rate', 'Standard OT Hours',
@@ -79,32 +140,14 @@ export function PayrollTab({ employees, schedule, shifts, holidays, config, allS
       'Standard OT Pay (IQD)', 'Holiday OT Pay (IQD)', 'Net Payable (IQD)',
       'Year', 'Month',
     ];
-    const rows = employees.map(emp => {
-      const empSched = schedule[emp.empId] || {};
-      let totalHours = 0;
-      Object.entries(empSched).forEach(([, entry]) => {
-        const sh = shiftByCode.get(entry.shiftCode);
-        if (sh?.isWork) totalHours += sh.durationHrs;
-      });
-      const baseMonthly = emp.baseMonthlySalary || DEFAULT_MONTHLY_SALARY_IQD;
-      const hourlyRate = baseHourlyRate(emp, config);
-      const breakdown = computeHolidayPay(emp, schedule, shifts, holidays, config, hourlyRate, allSchedules);
-      // Standard OT = hours over the monthly cap, minus the 2×-paid
-      // holiday hours (premium pool) so we don't pay both rates on the
-      // same hour. Hours that earned a comp day fall back into the
-      // 1× regular pool and are eligible for the 1.5× over-cap rate.
-      const standardOTHours = Math.max(0, totalHours - cap - breakdown.premiumHolidayHours);
-      const standardOTPay = Math.round(standardOTHours * hourlyRate * (config.otRateDay ?? 1.5));
-      const holidayOTPay = Math.round(breakdown.premiumPay);
-      const netPayable = baseMonthly + standardOTPay + holidayOTPay;
-      return [
-        emp.empId, emp.name, totalHours.toFixed(1), emp.holidayBank, emp.annualLeaveBalance,
-        baseMonthly, Math.round(hourlyRate), standardOTHours.toFixed(1),
-        breakdown.totalHolidayHours.toFixed(1), breakdown.premiumHolidayHours.toFixed(1),
-        standardOTPay, holidayOTPay, netPayable, config.year, config.month,
-      ];
-    });
-    const csv = [headers, ...rows].map(r => r.map(csvCell).join(',')).join('\n');
+    const csvRows = sortedRows.map(r => [
+      r.emp.empId, r.emp.name, r.totalHours.toFixed(1), r.emp.holidayBank, r.emp.annualLeaveBalance,
+      r.baseMonthly, Math.round(r.hourlyRate), r.standardOTHours.toFixed(1),
+      r.holidayBreakdown.totalHolidayHours.toFixed(1), r.holidayBreakdown.premiumHolidayHours.toFixed(1),
+      Math.round(r.standardOTPay), Math.round(r.holidayBreakdown.premiumPay), Math.round(r.netPayable),
+      config.year, config.month,
+    ]);
+    const csv = [headers, ...csvRows].map(r => r.map(csvCell).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -240,46 +283,23 @@ export function PayrollTab({ employees, schedule, shifts, holidays, config, allS
           <table className="w-full text-start border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.employee')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.hours')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest underline decoration-blue-500/30">{t('payroll.col.holidayBank')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest underline decoration-emerald-500/30">{t('payroll.col.annualLeave')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.leaves')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.baseSalary')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.hourlyRate')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.otEligibility')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.otAmount')}</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('payroll.col.netPayable')}</th>
+                <SortableHeader label={t('payroll.col.employee')} sortKey="name" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableHeader label={t('payroll.col.hours')} sortKey="totalHours" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableHeader label={t('payroll.col.holidayBank')} sortKey="holidayBank" currentKey={sortKey} direction={sortDir} onSort={handleSort} className="underline decoration-blue-500/30" />
+                <SortableHeader label={t('payroll.col.annualLeave')} sortKey="annualLeave" currentKey={sortKey} direction={sortDir} onSort={handleSort} className="underline decoration-emerald-500/30" />
+                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('payroll.col.leaves')}</th>
+                <SortableHeader label={t('payroll.col.baseSalary')} sortKey="baseMonthly" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableHeader label={t('payroll.col.hourlyRate')} sortKey="hourlyRate" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('payroll.col.otEligibility')}</th>
+                <SortableHeader label={t('payroll.col.otAmount')} sortKey="otAmount" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <SortableHeader label={t('payroll.col.netPayable')} sortKey="netPayable" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {employees.map(emp => {
-                const empSched = schedule[emp.empId] || {};
-                let totalHours = 0;
-                Object.entries(empSched).forEach(([, entry]) => {
-                  const shift = shiftByCode.get(entry.shiftCode);
-                  if (shift?.isWork) totalHours += shift.durationHrs;
-                });
-
-                const baseMonthly = emp.baseMonthlySalary || DEFAULT_MONTHLY_SALARY_IQD;
-                const hourlyRate = baseHourlyRate(emp, config);
-
-                const cap = monthlyHourCap(config);
-                // v2.1.1 — Holiday OT honours the Art. 74 either-or model.
-                // The 2× premium fires only when no comp day (CP / OFF /
-                // leave) lands within `holidayCompWindowDays` after the
-                // PH-work day. For comp-day holidays where the rest day
-                // is granted, holiday hours roll into the regular wage
-                // and stay eligible for the 1.5× over-cap pool.
-                const holidayBreakdown = computeHolidayPay(emp, schedule, shifts, holidays, config, hourlyRate, allSchedules);
+              {sortedRows.map(({ emp, totalHours, baseMonthly, hourlyRate, standardOTHours, holidayBreakdown, otAmount, netPayable }) => {
                 const totalHolidayHours = holidayBreakdown.totalHolidayHours;
                 const premiumHolidayHours = holidayBreakdown.premiumHolidayHours;
-                const standardOTHours = Math.max(0, totalHours - cap - premiumHolidayHours);
-
-                const standardOTPay = standardOTHours * hourlyRate * (config.otRateDay ?? 1.5);
-                const holidayOTPay = holidayBreakdown.premiumPay;
-
-                const isOtEligible = totalHours > cap;
+                const isOtEligible = totalHours > monthlyHourCap(config);
 
                 return (
                   <tr key={emp.empId} className="hover:bg-slate-50/50 transition-colors">
@@ -331,7 +351,7 @@ export function PayrollTab({ employees, schedule, shifts, holidays, config, allS
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-xs font-bold text-emerald-600">+{Math.round(standardOTPay + holidayOTPay).toLocaleString()}</div>
+                      <div className="text-xs font-bold text-emerald-600">+{Math.round(otAmount).toLocaleString()}</div>
                       <div className="text-[9px] text-slate-400 font-mono truncate">
                         {standardOTHours > 0 && `${standardOTHours.toFixed(1)}h @ ${Math.round((config.otRateDay ?? 1.5) * 100)}% `}
                         {premiumHolidayHours > 0 && `(incl. ${premiumHolidayHours.toFixed(1)}h @ ${Math.round((config.otRateNight ?? 2.0) * 100)}%)`}
@@ -342,7 +362,7 @@ export function PayrollTab({ employees, schedule, shifts, holidays, config, allS
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm font-black text-slate-900 tracking-tighter">
-                        {Math.round(baseMonthly + standardOTPay + holidayOTPay).toLocaleString()}
+                        {Math.round(netPayable).toLocaleString()}
                       </div>
                     </td>
                   </tr>

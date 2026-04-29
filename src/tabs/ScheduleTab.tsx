@@ -283,13 +283,19 @@ export function ScheduleTab({
   // Per-employee running counters for the active month. Computed once per
   // schedule change and shared with every visible row via rowProps so
   // virtualised rows don't redo the work as they scroll into view.
+  // v2.1.3 — keyed on the full `employees` array, not `filteredEmployees`.
+  // The search box rebinds `filteredEmployees` on every keystroke, which
+  // pre-2.1.3 invalidated this useMemo and rebuilt ~3100 stats objects
+  // (100 emp × 31 days) per character typed. Computing for the full
+  // roster up front means search-box typing only re-filters the visible
+  // rows; the stats cache is reused across keystrokes.
   const statsByEmpId = useMemo(() => {
     const m = new Map<string, EmployeeRunningStats>();
-    for (const emp of filteredEmployees) {
+    for (const emp of employees) {
       m.set(emp.empId, computeEmployeeRunningStats(emp, schedule, shifts, holidays, config));
     }
     return m;
-  }, [filteredEmployees, schedule, shifts, holidays, config]);
+  }, [employees, schedule, shifts, holidays, config]);
 
   const totalGridWidth = NAME_COL_WIDTH + days.length * DAY_CELL_WIDTH;
 

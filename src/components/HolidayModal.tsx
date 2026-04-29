@@ -71,7 +71,11 @@ export function HolidayModal({ isOpen, onClose, onSave, holiday, defaultCompMode
         </div>
 
         <div className="p-8 space-y-4">
-          <SettingField label={t('modal.holiday.field.date')} type="text" value={formData.date} onChange={v => setFormData({...formData, date: v})} />
+          {/* v2.1.3 — native date picker. The HTML <input type="date">
+              value is always YYYY-MM-DD, matching the storage format,
+              so callers don't need to reformat. The i18n hint stays for
+              users who type the date instead of using the picker. */}
+          <SettingField label={t('modal.holiday.field.date')} type="date" value={formData.date} onChange={v => setFormData({...formData, date: v})} />
           <p className="text-[10px] text-slate-400 -mt-2">{t('modal.holiday.field.date.hint')}</p>
           <SettingField label={t('modal.holiday.field.name')} value={formData.name} onChange={v => setFormData({...formData, name: v})} />
           <SettingField

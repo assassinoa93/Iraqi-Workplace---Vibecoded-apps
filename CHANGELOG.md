@@ -2,6 +2,23 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v2.1.3 — 2026-04-29
+
+**Cleanup batch.** The deferred items from the v2.1.2 audit — one real bug, one performance win, two UX upgrades.
+
+**Real bug**
+- **PayrollTab Net Payable double-counted legacy single-range leaves.** A v1.6 backup with `annualLeaveStart/End` set could inflate Net Payable when the schedule grid still showed the pre-leave shift code on those dates (the supervisor edited the leave field before re-running the auto-scheduler, or the legacy field was never converted to a multi-range entry). Pre-2.1.3 the table summed those hours as worked, pushing total past the monthly cap and triggering phantom 1.5× standard OT. New `computeWorkedHours` helper in `lib/payroll.ts` walks the schedule and subtracts overlapping leave days via `getEmployeeLeaveOnDate` — handles both v1.7 multi-range `leaveRanges` and the legacy single-range fields uniformly. The CSV export and on-screen table both flow through the helper.
+
+**Performance**
+- **Schedule search-box stat memoization.** `computeEmployeeRunningStats` was rebuilt for every employee on every keystroke in the search filter — ~3100 stat objects per character (100 emp × 31 days). The cache was re-keyed on `filteredEmployees`, which the parent rebuilds whenever the search text changes. Re-keyed on the full `employees` array instead so the cache survives across keystrokes; search now only re-filters the visible row list.
+
+**UX**
+- **Sortable PayrollTab + ShiftsTab.** Adopted the `SortableHeader` pattern from RosterTab. PayrollTab sorts on Name / Hours / Holiday Bank / Annual Leave / Salary / Hourly Rate / OT Amount / Net Payable. The CSV export honours the active sort so the file matches what's on screen. Per-row payroll figures are now computed in a `useMemo` once and reused by sort + render + CSV — no per-sort recomputation of holiday breakdowns. ShiftsTab sorts on Code / Name / Hours / Status; the manual reorder up/down buttons disable while a sort is active (with `shifts.reorder.disabled.sortActive` hint tooltip) so the underlying-vs-visible index mismatch can't read as a bug. `SortableHeader` extracted from RosterTab to `components/Primitives.tsx` for reuse — accepts a string sort key + alignment + className override.
+- **Holiday date input.** Upgraded the date field in HolidayModal from `type="text"` to `type="date"` for the native calendar picker. `SettingField` now accepts `type='date'` (HTML `<input type="date">` produces the same `YYYY-MM-DD` format the rest of the app expects, so no conversion is needed). The YYYY-MM-DD hint text stays for users who type the date instead.
+
+**Tests**
+- 108 passing (6 new in `payroll.test.ts`): work hours summed correctly in the no-leave case; legacy `annualLeaveStart/End`, `sickLeave*`, `maternityLeave*` overlaps subtracted; v1.7 `leaveRanges` overlaps subtracted; AL-painted-on-grid not double-subtracted; empty schedule returns 0.
+
 ## v2.1.2 — 2026-04-28
 
 **UX & bug-hunt batch.** A wide audit surfaced ~25 issues; this release ships fixes for the highest-impact 12. All low-risk, all things a supervisor would feel within minutes of using the app.
