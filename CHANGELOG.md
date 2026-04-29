@@ -2,6 +2,22 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v3.0.0 — 2026-04-29
+
+**Major version. Maturity milestone.** Three years after v1's MVP and a year of design-system maturation since v2.0, the visual language is now codified in an external claude.ai/design package and applied end-to-end across every tab. v3.0.0 isn't breaking — pre-3.0 backups load via the same migration normalisers — but the design system, offline-ready font bundle, comprehensive dark mode, and FT/PT-split workforce planning are all post-2.0 additions and form the new baseline.
+
+**Offline-ready webfont bundle**
+- Pre-3.0 the app loaded Inter / Outfit / JetBrains Mono / Noto Naskh / Noto Kufi from the Google Fonts CDN. A first-launch with no internet would render the app in the system fallback stack until the user got online.
+- v3.0 bundles all five families locally via `@fontsource/*` packages. Each weight ships a hashed `.woff2` next to the bundle; `main.tsx` imports them directly so Vite handles emit + cache-busting. The `@theme` font stack in `index.css` keeps the same family names so component classes stay unchanged. Arabic faces appended to the sans/display stacks so an Arabic glyph picks Naskh / Kufi via unicode-range fallback even outside the explicit `[dir="rtl"]` pass.
+
+**Design system applied end-to-end**
+- Every tab — Dashboard, Schedule, Roster, Payroll, Workforce Planning, Coverage & OT, Layout, Shifts, Holidays, Reports, Variables, Settings, Audit Log — now uses the design-system primitives consistently: `Card`, `KpiCard`, `apple-press` interaction, eyebrow→stat→unit KPI rhythm, three-tier shadow elevation, logical utilities (`ms-*`/`me-*`/`ps-*`/`pe-*`/`start-*`/`end-*`) for RTL, and the rounded-pill sidebar nav from the design package.
+- Settings, Reports, Holidays, Audit Log received explicit `dark:` annotations on every accent surface (alert banners, status chips, hover surfaces, sticky headers). The Audit Log's day-grouper sticky header used to hardcode `bg-[#F3F4F6]` — invisible in dark mode; now uses the page-bg token with both light/dark variants.
+- Global dark-override pass extended to cover `text-*-800` / `text-*-900` foregrounds, `text-orange-*` / `bg-orange-*`, `text-teal-*` / `bg-teal-*`, `divide-slate-50`. Pre-3.0 these tinted accents stayed dark-on-dark in dark mode (legible-but-poor-contrast); now they remap to luminance-correct shades automatically across every component.
+
+**Compatibility**
+- All 108 tests pass. Backups load unchanged. The font bundle adds ~600 KB to the gzipped distribution but eliminates the offline-first failure mode.
+
 ## v2.7.0 — 2026-04-29
 
 **Design-system pass + per-station demand profile.** Two user-driven items: pulled the sidebar pattern out of the new claude.ai/design package and wired it into production, then carried the v2.6 FTE/PT annual demand profile down into the per-station and per-group drilldowns so the depth of analysis is consistent at every level of the workforce planner.

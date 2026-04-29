@@ -35,33 +35,33 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="space-y-1">
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-tight">{t('holidays.title')}</h3>
-          <p className="text-xs text-slate-400 font-medium tracking-widest font-mono leading-none">{t('holidays.subtitle')}</p>
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-100 uppercase tracking-tight">{t('holidays.title')}</h3>
+          <p className="text-xs text-slate-400 dark:text-slate-500 font-medium tracking-widest font-mono leading-none">{t('holidays.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* v2.2.0 — bulk-set every holiday at once. Useful when the
               supervisor wants to flip the whole year to cash-ot during
               a peak quarter, then back to inherit afterwards. */}
           {holidays.length > 0 && (
-            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-2">{t('holidays.bulk.label')}</span>
+            <div className="flex items-center bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-1 shadow-sm">
+              <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest px-2">{t('holidays.bulk.label')}</span>
               <button
                 onClick={() => onSetAllCompModes(undefined)}
-                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:bg-slate-100 transition-all"
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-all"
                 title={t('holidays.bulk.inherit.tooltip')}
               >
                 {t('holidays.compMode.inherit')}
               </button>
               <button
                 onClick={() => onSetAllCompModes('comp-day')}
-                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-emerald-700 hover:bg-emerald-50 transition-all"
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/15 transition-all"
                 title={t('holidays.bulk.compDay.tooltip')}
               >
                 {t('holidays.compMode.compDay')}
               </button>
               <button
                 onClick={() => onSetAllCompModes('cash-ot')}
-                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-amber-700 hover:bg-amber-50 transition-all"
+                className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/15 transition-all"
                 title={t('holidays.bulk.cashOt.tooltip')}
               >
                 {t('holidays.compMode.cashOt')}
@@ -70,7 +70,7 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
           )}
           <button
             onClick={onAddNew}
-            className="flex items-center gap-2 bg-red-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg font-mono"
+            className="apple-press flex items-center gap-2 bg-red-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-500/25 font-mono"
           >
             <Plus className="w-4 h-4" />
             {t('holidays.new')}
@@ -78,7 +78,7 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
         </div>
       </div>
 
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-[11px] text-slate-600 leading-relaxed">
+      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
         {t('holidays.compModeHint', {
           mode: defaultMode === 'comp-day' ? t('holidays.compMode.compDay') : t('holidays.compMode.cashOt'),
         })}
@@ -89,21 +89,21 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
           const effMode: HolidayCompMode = holi.compMode ?? defaultMode;
           const isOverride = holi.compMode !== undefined;
           return (
-            <Card key={holi.id ?? holi.date} className="p-6 relative group border-slate-200">
+            <Card key={holi.id ?? holi.date} className="p-6 relative group">
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center text-red-600 border border-red-100 shadow-sm">
+                <div className="w-12 h-12 bg-red-50 dark:bg-red-500/15 rounded-xl flex items-center justify-center text-red-600 dark:text-red-300 border border-red-100 dark:border-red-500/30 shadow-sm">
                   <Calendar className="w-6 h-6" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className="font-bold text-slate-800 text-sm leading-tight">{holi.name}</h4>
+                    <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm leading-tight">{holi.name}</h4>
                     {(holi.durationDays ?? 1) > 1 && (
-                      <span className="text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                      <span className="text-[9px] font-black bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-500/30 px-1.5 py-0.5 rounded uppercase tracking-widest">
                         {t('holidays.durationBadge', { days: holi.durationDays })}
                       </span>
                     )}
                   </div>
-                  <span className="text-[10px] font-mono text-slate-400 font-bold uppercase">
+                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-bold uppercase">
                     {(holi.durationDays ?? 1) > 1
                       ? t('holidays.dateRange', {
                           start: format(new Date(holi.date), 'dd MMM'),
@@ -115,26 +115,29 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
               </div>
 
               <div className="mt-3">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">{t('holidays.compMode.label')}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-1.5">{t('holidays.compMode.label')}</p>
                 <button
                   onClick={() => onUpdate({ ...holi, compMode: cycleMode(holi.compMode) })}
                   className={cn(
                     'w-full px-3 py-2 rounded-lg border text-[10px] font-bold uppercase tracking-widest transition-all',
                     effMode === 'comp-day'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
-                      : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100',
+                      ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-500/25'
+                      : 'bg-amber-50 dark:bg-amber-500/15 border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/25',
                   )}
                   title={t('holidays.compMode.cycleHint')}
                 >
                   {effMode === 'comp-day' ? t('holidays.compMode.compDay') : t('holidays.compMode.cashOt')}
                   {!isOverride && (
-                    <span className="ml-2 normal-case font-medium text-[9px] text-slate-500 lowercase">{t('holidays.compMode.inherit')}</span>
+                    <span className="ms-2 normal-case font-medium text-[9px] text-slate-500 dark:text-slate-400 lowercase">{t('holidays.compMode.inherit')}</span>
                   )}
                 </button>
               </div>
 
-              <div className="flex justify-between items-center py-3 border-t border-slate-50 mt-4">
-                <span className={cn("text-[9px] font-black uppercase tracking-widest", holi.isFixed ? "text-blue-500" : "text-slate-400")}>
+              <div className="flex justify-between items-center py-3 border-t border-slate-50 dark:border-slate-700/60 mt-4">
+                <span className={cn(
+                  'text-[9px] font-black uppercase tracking-widest',
+                  holi.isFixed ? 'text-blue-500 dark:text-blue-300' : 'text-slate-400 dark:text-slate-500',
+                )}>
                   {holi.isFixed ? t('holidays.fixed') : t('holidays.movable')}
                 </span>
                 <div className="flex items-center gap-1">
@@ -142,7 +145,7 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
                     onClick={() => onEdit(holi)}
                     aria-label={`${t('action.edit')}: ${holi.name}`}
                     title={t('action.edit')}
-                    className="text-slate-300 hover:text-blue-500 transition-colors p-1"
+                    className="text-slate-300 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-300 transition-colors p-1"
                   >
                     <Edit3 className="w-4 h-4" />
                   </button>
@@ -150,7 +153,7 @@ export function HolidaysTab({ holidays, config, onAddNew, onEdit, onDelete, onUp
                     onClick={() => onDelete(holi)}
                     aria-label={`${t('action.delete')}: ${holi.name}`}
                     title={t('action.delete')}
-                    className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                    className="text-slate-300 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-300 transition-colors p-1"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

@@ -1,7 +1,7 @@
 {
   "name": "iraqi-labor-scheduler",
   "private": true,
-  "version": "2.7.0",
+  "version": "3.0.0",
   "description": "Local-first workforce scheduler tailored for Iraqi Labor Law (Art. 67-74, 88).",
   "author": {
     "name": "Iraqi Labor Scheduler Project",
@@ -26,6 +26,11 @@
     "electron:build": "npm run lint && npm run icons && npm run build && npm run build:server && electron-builder"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/noto-kufi-arabic": "^5.2.9",
+    "@fontsource/noto-naskh-arabic": "^5.2.11",
+    "@fontsource/outfit": "^5.2.8",
     "@tailwindcss/vite": "^4.1.14",
     "@types/react-window": "^1.8.8",
     "clsx": "^2.1.1",

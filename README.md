@@ -65,11 +65,11 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v2.7.0)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-2.7.0.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v3.0.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-3.0.0.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.7.0.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-3.0.0.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -77,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.7.0…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v3.0.0…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -219,15 +219,25 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
 
-## 📦 What's new in v2.7.0
+## 📦 What's new in v3.0.0
 
-**Design-system pass + per-station demand profile.** Two user-driven items: pulled the sidebar pattern out of the new claude.ai/design package and wired it into production, then carried the v2.6 FTE/PT annual demand profile down into the per-station and per-group drilldowns so the depth of analysis is consistent at every level of the workforce planner.
+**Major version. Maturity milestone.** Three years after v1's MVP and a year of design-system maturation since v2.0, the visual language is now codified in an external claude.ai/design package and applied end-to-end across every tab. v3.0.0 isn't breaking — pre-3.0 backups load via the same migration normalisers — but the design system, offline-ready font bundle, comprehensive dark mode, and FT/PT-split workforce planning are all post-2.0 additions and form the new baseline.
 
 | Area | Change |
 |------|--------|
-| **Sidebar — design-system pattern** | TabButton switches from the v2.6 leading-edge blue stripe to a macOS Big Sur-style rounded-12 pill: tinted blue surface, hairline blue ring, inset highlight, and a small pulsing blue dot at the inline-end edge. Auto-mirrors in RTL via logical classes. Brand area gets a monochrome calendar-check icon block + concise wordmark + mono version pip — replaces the all-caps text-only header. Sidebar narrowed from 256→248 px and the rail palette aligned to the design tokens (`#0f172a`). |
-| **Workforce Planning — per-station demand profile** | The v2.6 Annual Headcount Plan panel introduced FTE / PT split with Avg / Median / Peak / Valley tiles for the company as a whole. v2.7 takes that exact treatment to the per-station and per-group expanded drilldowns. Click any station or group row → see the same 4-tile demand profile **scoped to just that station / group** (e.g. "Cashier Counter 3 peaks at 4 FTE in April, valleys at 2 in August"). Standalone station rollup rows (the no-group case) are now click-to-expand with the same profile. New `MonthlyDemandProfile` component renders a compact two-column FT \| PT layout that auto-collapses to a single column when only one contract type is recommended (conservative mode). |
-| **Library — monthly arrays exposed** | `AnnualRollupStation` and `AnnualRollupGroup` now carry `monthlyFTE: number[12]` and `monthlyPartTime: number[12]`. The data was already computed inside `buildAnnualRollup` but discarded after reducing to a single recommendation. The new fields cost no extra compute. `fiveNumberSummary()` extracted to a top-level helper so the top KPI panel and the drilldowns compute identically. |
+| **Offline-ready webfont bundle** | Pre-3.0 the app loaded Inter / Outfit / JetBrains Mono / Noto Naskh / Noto Kufi from the Google Fonts CDN. A first-launch with no internet would render the app in the system fallback stack until the user got online. v3.0 bundles all five families locally via `@fontsource/*` packages — each weight ships a hashed `.woff2` next to the bundle; Vite handles emit + cache-busting. Arabic faces appended to the sans/display stacks so an Arabic glyph picks Naskh / Kufi via unicode-range fallback even outside the explicit `[dir="rtl"]` pass. |
+| **Design system applied end-to-end** | Every tab — Dashboard, Schedule, Roster, Payroll, Workforce Planning, Coverage & OT, Layout, Shifts, Holidays, Reports, Variables, Settings, Audit Log — now uses the design-system primitives consistently: `Card`, `KpiCard`, `apple-press` interaction, eyebrow→stat→unit KPI rhythm, three-tier shadow elevation, logical utilities (`ms-*`/`me-*`/`ps-*`/`pe-*`/`start-*`/`end-*`) for RTL, and the rounded-pill sidebar nav from the design package. |
+| **Dark mode end-to-end coverage** | Settings, Reports, Holidays, Audit Log received explicit `dark:` annotations on every accent surface (alert banners, status chips, hover surfaces, sticky headers). The Audit Log's day-grouper sticky header used to hardcode `bg-[#F3F4F6]` — invisible in dark mode; now uses the page-bg token with both light/dark variants. Global dark-override pass extended to cover `text-*-800` / `text-*-900` foregrounds, `text-orange-*` / `bg-orange-*`, `text-teal-*` / `bg-teal-*`, `divide-slate-50`. Pre-3.0 these tinted accents stayed dark-on-dark in dark mode (legible-but-poor-contrast); now they remap to luminance-correct shades automatically across every component. |
+
+## 📦 What's new in v2.7.0
+
+**Design-system pass + per-station demand profile.**
+
+| Area | Change |
+|------|--------|
+| **Sidebar — design-system pattern** | TabButton switches from the v2.6 leading-edge blue stripe to a macOS Big Sur-style rounded-12 pill: tinted blue surface, hairline blue ring, inset highlight, and a small pulsing blue dot at the inline-end edge. Auto-mirrors in RTL via logical classes. Brand area gets a monochrome calendar-check icon block + concise wordmark + mono version pip. Sidebar narrowed from 256→248 px. |
+| **Workforce Planning — per-station demand profile** | The v2.6 Annual Headcount Plan panel introduced FTE / PT split with Avg / Median / Peak / Valley tiles for the company as a whole. v2.7 takes that exact treatment to the per-station and per-group expanded drilldowns. Click any station or group row → see the same 4-tile demand profile scoped to just that station / group. New `MonthlyDemandProfile` component renders a compact two-column FT \| PT layout. |
+| **Library — monthly arrays exposed** | `AnnualRollupStation` and `AnnualRollupGroup` now carry `monthlyFTE: number[12]` and `monthlyPartTime: number[12]`. `fiveNumberSummary()` extracted to a top-level helper so the top KPI panel and the drilldowns compute identically. |
 
 ## 📦 What's new in v2.6.0
 
