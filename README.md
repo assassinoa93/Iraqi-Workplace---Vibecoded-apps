@@ -33,12 +33,12 @@ A professional, local-first workforce management and automated scheduling system
 - **📊 3-Mode Staffing Advisory (Dashboard)**: Tab strip on the dashboard advisory card flips between hiring strategies — *Eliminate Overtime* (absorb every OT hour into FTE shifts), *Optimal Coverage* (close every peak-hour gap), *Best of Both* (the conservative ceiling). Each shows hires needed, OT saved (IQD/mo), salary added (IQD/mo), and net monthly delta so the supervisor can weigh tradeoffs before committing.
 - **📅 Multi-range leave manager**: Open Credits & Payroll, click *Manage* on any employee, and add as many leave windows as you need (annual / sick / maternity) each with its own start/end and notes. Adding a leave automatically stamps the matching `AL` / `SL` / `MAT` codes on the schedule grid AND surfaces a coverage-hint with swap candidates for the most-impactful affected day — single source of truth, no double-input.
 - **🎁 Public-holiday comp days**: The auto-scheduler tracks per-employee comp-day debt (incremented on each PH-work assignment, decremented on the next OFF/leave) and biases the candidate sort to push debtors toward OFF in the days following — naturally satisfying Art. 74's compensation-day expectation. A `Comp day owed` info-finding fires when no rest appears within 7 days.
-- **🖱️ Schedule grid power-ups**: Drag-to-paint, Shift+click range fill, per-cell undo (Ctrl+Z) separate from the Auto-Schedule undo, today indicator (blue ring) on the active day, holiday dot in the header with full holiday name in the tooltip, and a footer summary bar (total work hours, employees at-cap / near-cap, employees with any leave-day this month).
+- **🖱️ Schedule grid power-ups**: Drag-to-paint, Shift+click range fill, per-cell undo (Ctrl+Z) separate from the Auto-Schedule undo, today indicator (blue ring) on the active day, holiday dot in the header with full holiday name in the tooltip, and a footer summary bar (total work hours, employees at-cap / near-cap, employees with any leave-day this month). **v2.6 — Excel-pivot-style "Group by station"** toggle clusters rows under collapsible station headers with a chevron + headcount badge; collapse states persist across sessions in localStorage.
 - **📋 Bulk shift assignment**: Select N employees in the Roster, hit *Assign Shift*, pick a shift code and day range, choose whether to overwrite existing entries — paints the rectangle in one shot.
 - **👤 Per-employee labor-law card**: Hover any employee name in the schedule grid to see a tooltip with hours-vs-cap, peak weekly window, longest streak, and last day worked. A small badge appears on rows that are at or above 90% of their weekly cap so you spot saturated employees before painting another shift.
 - **📈 Compliance trendline**: A sparkline on the Dashboard records daily compliance % per company in localStorage and shows the 30-day delta with an up/down indicator — no server work needed.
 - **🖨️ Print view**: One-click "Print" button in the schedule toolbar renders all employees (no virtualization) on an A3 landscape page with the proper shift colours preserved (`-webkit-print-color-adjust: exact`). Hidden in normal display via `@media print`.
-- **🌗 Dark mode**: Sidebar toggle cycles Light → Dark → System. Tailwind `dark:` variant is wired via `@variant` in CSS, with global overrides for `bg-white`, `text-slate-*`, and form fields so the app reads cleanly in dark mode without per-component edits.
+- **🌗 Apple-polish dark mode (v2.6)**: 3-button segmented theme picker (Light / Dark / System) in the sidebar footer. Comprehensive dark-mode design-token layer with warmer GitHub-Dark surfaces (`#161b22` / `#1c2230`) instead of harsh slate-900. Every tinted accent (`bg-blue-50`, `bg-emerald-50`, `bg-amber-50`, `bg-rose-50`, …) and its opacity variants remap to alpha-tinted hues in dark mode so chips stay semantic without bleeding off-white. Schedule grid lines are visible in both themes via a CSS-variable-driven `.schedule-grid-line` utility. Shift cell colours ship explicit dark variants so the calendar reads at a glance. Apple-style scrollbars (thin pills) globally, `prefers-reduced-motion`-aware press animations on CTAs.
 - **💾 Daily auto-snapshot**: On the first launch each calendar day, the Electron main process snapshots the data folder to `data-daily-<YYYY-MM-DD>/` next to the live folder. The 7 most recent daily snapshots are kept; older ones rotate out automatically. Independent from the post-update snapshot — gives you a recovery point even between version updates.
 - **🏢 Multi-company / branches**: Sidebar `CompanySwitcher` to add, rename, or delete companies. Each company owns its own employees, shifts, stations, holidays, config, and schedules. Active company is sticky across reloads. Backups round-trip every company in one file; legacy single-company backups are migrated automatically.
 - **🕒 Per-day operating windows**: Default opening / closing hours plus a seven-toggle override grid in the Variables tab. Useful when peak days run later than weekdays — e.g. Friday closes at 02:00 instead of 23:00. Dashboard heatmap and coverage-% metrics honour the per-day window.
@@ -65,11 +65,11 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v2.2.0)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-2.2.0.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v2.6.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-2.6.0.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.2.0.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-2.6.0.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
@@ -77,7 +77,7 @@ The easiest way to use the app is to download the pre-built installer:
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.2.0…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v2.6.0…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -218,6 +218,31 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v2.6.0
+
+**Apple-polish UX overhaul + clearer Workforce Planning + pivot-style schedule grouping.** The biggest visual sweep since v1, plus two user-driven fixes: the Workforce Planning view now splits FTE and PT throughout (with annual avg / median / peak / valley demand profile), and the Schedule's "Group by station" filter became Excel-pivot-style collapsible station headers instead of just sorting rows.
+
+| Area | Change |
+|------|--------|
+| **Workforce Planning — FTE/PT split + annual demand profile** | The KPI strip used to merge FTE and PT into a single "recommended roster" number, and the headcount delta was a single combined figure. v2.6 replaces that with a focused 3-card anchor row (Total hours · Annual cost delta · Legal-safety premium *or* Peak month) plus a dedicated **Annual Headcount Plan** panel below. Two parallel columns (FTE \| PT). Each shows: current → year-round (with a coloured Δ pill `+4 FTE` / `−2 PT`), then a 4-tile **Avg / Median / Peak (Apr) / Valley (Aug)** grid with month names attached. One-sentence rationale per column that swaps with planner mode (peak-driven / average-driven). |
+| **Schedule grid — pivot-style "Group by station"** | Toggle now produces Excel-pivot-style collapsible station headers instead of just sorting rows. Each block opens with a tinted header strip (chevron + map-pin + station name + headcount badge); click to collapse / expand. Collapsed station IDs persist across sessions in localStorage. Employees with no scheduled station yet cluster under an "Unassigned" header at the bottom. Variable row heights (38 px header / 48 px body) without losing virtualization. |
+| **Dark mode + design tokens** | New CSS-variable layer (`--surface`, `--foreground`, `--border`, `--ring`, `--grid-line`, …) drives both themes. Dark palette retuned warmer (GitHub-Dark graphite `#161b22` / `#1c2230`) than raw `slate-900`. Comprehensive overrides for previously washed-out tinted backgrounds (`bg-blue-50`, `bg-emerald-50`, `bg-rose-50`, `bg-amber-50`, …) and their opacity variants — they now alpha-tint against the dark surface instead of bleeding off-white. New shift-cell colour pairs in `lib/colors.ts` per shift code. |
+| **Schedule grid lines visible in both themes** | New `.schedule-grid-line` utility binds vertical day-cell borders to a CSS variable that picks a stronger value in both modes. Pre-2.6 dark mode mapped the cell border to the same slate as the cell background — invisible. Day header gets explicit dark contrast for weekend / holiday / today states. |
+| **Workforce Planning forecast — movable holidays projected by month/day** | Pre-2.6 the forecast year selector dropped movable Islamic holidays (Eid Al-Fitr, Eid Al-Adha, etc.) when projecting to 2027+. v2.6 projects every holiday by month/day to the target year. Movable projections are flagged `isApproximation: true` and the banner clarifies "actual dates drift ~11 days earlier each Gregorian year — adjust in the Holidays tab once the official Hijri calendar is announced." |
+| **Apple-style polish** | New `apple-press` utility for primary CTAs (cubic-bezier translate-up on hover, scale-down on press, respects `prefers-reduced-motion`). Top toolbar uses `backdrop-blur-md` with a translucent surface and softer rounded buttons. Sidebar `TabButton` gets a pinned blue active-stripe (RTL-correct). `LocaleSwitcher` becomes a 3-button segmented theme picker (Light / Dark / System). Thin pill scrollbars globally. ConfirmModal: deeper backdrop blur + cubic-bezier motion + coloured shadow CTAs. |
+
+## 📦 What's new in v2.5.0
+
+Forecasting + supply truth-telling. Forecast-year selector for planning future years from current data, optimal-mode 'release' actions with Iraqi-law caveats, fair-share effective supply per station to fix the "35 eligible / 2 needed" double-count, and multi-day holiday support so Eid Al-Fitr can be one record instead of three.
+
+## 📦 What's new in v2.4.0
+
+Hiring Roadmap. Month-by-month recruitment plan that phases hires so new staff land just before each demand step-up, deferring payroll until needed and saving money vs hiring everyone at year start. Surfaces on screen, in the PDF export, and in the Excel workbook.
+
+## 📦 What's new in v2.3.0
+
+Workforce Planning sprint — group-aware eligibility, FT/PT comparative breakdown, Excel export.
 
 ## 📦 What's new in v2.2.0
 

@@ -1,8 +1,8 @@
 import React, { useMemo, useEffect, useState, useRef } from 'react';
-import { ChevronLeft, Search, MousePointer2, Sparkles, Hash, AlertTriangle, X, Wrench, Wand2, Keyboard, Undo2, AlertOctagon, Printer, Calendar } from 'lucide-react';
+import { ChevronLeft, Search, MousePointer2, Sparkles, Hash, AlertTriangle, X, Wrench, Wand2, Keyboard, Undo2, AlertOctagon, Printer, Calendar, ChevronDown, ChevronRight, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { List, type RowComponentProps } from 'react-window';
-import { Employee, Shift, PublicHoliday, Config, Schedule } from '../types';
+import { Employee, Shift, PublicHoliday, Config, Schedule, Station } from '../types';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
 import { ScheduleCell, MonthYearPicker } from '../components/Primitives';
@@ -13,6 +13,9 @@ export type PaintMode = { shiftCode: string; stationId?: string } | null;
 interface ScheduleTabProps {
   employees: Employee[];
   filteredEmployees: Employee[];
+  // v2.6 — stations are needed for the pivot-style "group by station" view
+  // (header rows show the station name + headcount, members nest under them).
+  stations: Station[];
   shifts: Shift[];
   holidays: PublicHoliday[];
   config: Config;
@@ -85,11 +88,22 @@ interface ScheduleTabProps {
 // Layout constants used by both the sticky header row and the virtualized
 // body rows. Keep them in sync — drift here = misaligned columns.
 const ROW_HEIGHT = 48;
+const GROUP_HEADER_HEIGHT = 38;
 const DAY_CELL_WIDTH = 36;
 const NAME_COL_WIDTH = 224;
 
+const GROUP_COLLAPSE_KEY = 'iraqi-scheduler-collapsed-station-groups';
+
+// Pivot row plan item. When `scheduleGroupByStation` is on, the row plan
+// interleaves station headers with employee rows; otherwise it's just
+// employee rows. react-window only knows about the row count + height —
+// we walk the plan to render either kind.
+type RowPlanItem =
+  | { kind: 'header'; stationId: string; stationName: string; count: number; collapsed: boolean }
+  | { kind: 'employee'; emp: Employee; stationId: string };
+
 interface RowData {
-  employees: Employee[];
+  rowPlan: RowPlanItem[];
   days: number[];
   schedule: Schedule;
   onCellClick: (empId: string, day: number, opts?: { shift?: boolean }) => void;
@@ -97,6 +111,9 @@ interface RowData {
   onCellMouseEnter: (empId: string, day: number) => void;
   recentlyChangedCells?: Set<string>;
   statsByEmpId: Map<string, EmployeeRunningStats>;
+  onToggleCollapse: (stationId: string) => void;
+  groupingEnabled: boolean;
+  totalGridWidth: number;
 }
 
 // Each visible row is rendered by react-window. We deliberately do NOT wrap
@@ -104,9 +121,67 @@ interface RowData {
 // react-window v2's strict prop type rejects, and the row is cheap anyway
 // (a flexbox + N divs). Virtualisation alone is the meaningful win.
 function ScheduleRow({
-  index, style, employees, days, schedule, onCellClick, onCellMouseDown, onCellMouseEnter, recentlyChangedCells, statsByEmpId,
+  index, style, rowPlan, days, schedule, onCellClick, onCellMouseDown, onCellMouseEnter,
+  recentlyChangedCells, statsByEmpId, onToggleCollapse, groupingEnabled, totalGridWidth,
 }: RowComponentProps<RowData>) {
-  const emp = employees[index];
+  const item = rowPlan[index];
+  if (!item) return <div style={style} />;
+
+  // ── Pivot header row ──────────────────────────────────────────────────────
+  // Renders as a single tinted strip across the whole grid: a sticky-left
+  // chevron + station label, then the day-area carries on flat (no per-cell
+  // borders inside the strip — the day grid resumes on the next employee
+  // row). Clicking anywhere on the strip toggles collapse.
+  if (item.kind === 'header') {
+    const collapsed = item.collapsed;
+    return (
+      <div
+        style={style}
+        role="button"
+        tabIndex={0}
+        onClick={() => onToggleCollapse(item.stationId)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggleCollapse(item.stationId);
+          }
+        }}
+        title={collapsed ? `Expand · ${item.stationName}` : `Collapse · ${item.stationName}`}
+        className="flex border-b border-blue-200/60 dark:border-blue-500/30 bg-gradient-to-r from-blue-50 via-blue-50/70 to-blue-50/40 dark:from-blue-500/15 dark:via-blue-500/10 dark:to-blue-500/5 hover:from-blue-100 hover:via-blue-100/70 dark:hover:from-blue-500/25 cursor-pointer transition-colors group-row-header select-none"
+      >
+        <div
+          data-sticky-left
+          className="z-10 px-3 flex items-center gap-2 will-change-transform"
+          style={{ width: NAME_COL_WIDTH, minWidth: NAME_COL_WIDTH, height: GROUP_HEADER_HEIGHT }}
+        >
+          <span className="shrink-0 text-blue-600 dark:text-blue-300">
+            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </span>
+          <MapPin className="w-3.5 h-3.5 text-blue-500 dark:text-blue-300 shrink-0" />
+          <span className="text-[11px] font-black text-blue-900 dark:text-blue-100 uppercase tracking-tight truncate">
+            {item.stationName}
+          </span>
+          <span
+            className="ms-auto text-[9px] font-mono font-black bg-blue-600/90 text-white px-1.5 py-0.5 rounded shrink-0"
+            aria-label={`${item.count} employees`}
+          >
+            {item.count}
+          </span>
+        </div>
+        {/* The day area stays empty visually — the gradient already paints
+            the strip, and we don't want the per-cell borders to show inside
+            the header band. A single spacer div fills the day area so the
+            grid widths still line up. */}
+        <div
+          aria-hidden
+          style={{ width: Math.max(0, totalGridWidth - NAME_COL_WIDTH), height: GROUP_HEADER_HEIGHT }}
+        />
+      </div>
+    );
+  }
+
+  // ── Employee row (existing schedule grid behaviour) ───────────────────────
+  const emp = item.emp;
   const stats = emp ? statsByEmpId.get(emp.empId) : undefined;
   // Cap-status tone: red when at or above the cap, amber within 90%, neutral
   // otherwise. Drives a small badge next to the name so the user spots
@@ -114,7 +189,7 @@ function ScheduleRow({
   const capPct = stats && stats.weeklyCap > 0 ? stats.weeklyHrsRolling / stats.weeklyCap : 0;
   const tone = capPct >= 1 ? 'over' : capPct >= 0.9 ? 'near' : 'ok';
   return (
-    <div style={style} className="flex border-b border-slate-100 hover:bg-slate-50/50 group bg-white">
+    <div style={style} className="flex border-b schedule-grid-line hover:bg-slate-50/50 dark:hover:bg-slate-800/40 group bg-white dark:bg-slate-900">
       {/* v1.15 — react-window's overflow:auto container intercepts CSS
           sticky-left, so the JS scroll handler in ScheduleTab translates
           [data-sticky-left] elements by the current scrollLeft to keep
@@ -122,17 +197,19 @@ function ScheduleRow({
           keeps the transform on the GPU compositor for smooth panning. */}
       <div
         data-sticky-left
-        className="bg-white group-hover:bg-slate-50 z-10 px-4 py-2 border-r border-slate-200 shadow-[4px_0_10px_rgba(0,0,0,0.03)] flex flex-col justify-center will-change-transform"
+        className="bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/60 z-10 px-4 py-2 border-r border-slate-200 dark:border-slate-700 shadow-[4px_0_10px_rgba(0,0,0,0.03)] flex flex-col justify-center will-change-transform"
         style={{ width: NAME_COL_WIDTH, minWidth: NAME_COL_WIDTH }}
         title={stats ? formatEmployeeStatsTooltip(stats) : undefined}
       >
         <div className="flex items-center gap-1.5">
-          <span className="font-bold text-slate-700 text-xs truncate uppercase tracking-tight flex-1 min-w-0">{emp?.name}</span>
+          <span className="font-bold text-slate-700 dark:text-slate-100 text-xs truncate uppercase tracking-tight flex-1 min-w-0">{emp?.name}</span>
           {stats && tone !== 'ok' && (
             <span
               className={cn(
                 "shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[8px] font-black tracking-widest",
-                tone === 'over' ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700",
+                tone === 'over'
+                  ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-200"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200",
               )}
               title={`${stats.weeklyHrsRolling.toFixed(1)} / ${stats.weeklyCap} h peak weekly`}
             >
@@ -141,14 +218,14 @@ function ScheduleRow({
             </span>
           )}
         </div>
-        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 shrink-0 mt-0.5">
+        <span className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1 shrink-0 mt-0.5">
           <Hash className="w-2 h-2" /> {emp?.empId} • {emp?.role}
         </span>
       </div>
       {days.map(day => {
         const isRecent = !!emp && !!recentlyChangedCells?.has(`${emp.empId}:${day}`);
         return (
-          <div key={day} className="border-r border-slate-100 flex-shrink-0" style={{ width: DAY_CELL_WIDTH, minWidth: DAY_CELL_WIDTH }}>
+          <div key={day} className="border-r schedule-grid-line flex-shrink-0" style={{ width: DAY_CELL_WIDTH, minWidth: DAY_CELL_WIDTH }}>
             <ScheduleCell
               value={emp ? schedule[emp.empId]?.[day]?.shiftCode || '' : ''}
               onClick={(e) => emp && onCellClick(emp.empId, day, { shift: e.shiftKey })}
@@ -164,7 +241,7 @@ function ScheduleRow({
 }
 
 export function ScheduleTab({
-  employees, filteredEmployees, shifts, holidays, config, schedule,
+  employees, filteredEmployees, stations, shifts, holidays, config, schedule,
   paintMode, setPaintMode, scheduleFilter, setScheduleFilter,
   scheduleRoleFilter, setScheduleRoleFilter,
   scheduleViolationsOnly, setScheduleViolationsOnly,
@@ -176,6 +253,33 @@ export function ScheduleTab({
   paintWarnings, onDismissPaintWarnings, staleness, recentlyChangedCells,
 }: ScheduleTabProps) {
   const { t } = useI18n();
+
+  // v2.6 — collapsed station IDs persist across sessions so the supervisor's
+  // pivot view doesn't reset between visits. Stored as an array (Set isn't
+  // JSON-friendly) keyed per-app — small enough that we don't bother per-
+  // company; the IDs are globally unique anyway.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const raw = window.localStorage.getItem(GROUP_COLLAPSE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed : []);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(GROUP_COLLAPSE_KEY, JSON.stringify(Array.from(collapsedGroups)));
+    } catch {/* quota / privacy mode — non-critical */}
+  }, [collapsedGroups]);
+  const toggleCollapse = React.useCallback((stationId: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(stationId)) next.delete(stationId);
+      else next.add(stationId);
+      return next;
+    });
+  }, []);
   // Drag-paint: when the user holds the mouse on a cell while in paint mode
   // and drags across neighbours, every cell entered gets painted. Tracked
   // here (not in App.tsx) to keep mouse-event noise local to the grid.
@@ -324,6 +428,95 @@ export function ScheduleTab({
 
   const totalGridWidth = NAME_COL_WIDTH + days.length * DAY_CELL_WIDTH;
 
+  // v2.6 — primary station per employee. The "most-frequent stationId in the
+  // visible month" wins; ties are broken by station-table order.
+  const primaryStationByEmp = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const emp of employees) {
+      const empSched = schedule[emp.empId] || {};
+      const counts = new Map<string, number>();
+      for (const entry of Object.values(empSched)) {
+        if (entry.stationId) counts.set(entry.stationId, (counts.get(entry.stationId) || 0) + 1);
+      }
+      let best = '';
+      let bestN = 0;
+      for (const [sid, n] of counts) {
+        if (n > bestN) { bestN = n; best = sid; }
+      }
+      m.set(emp.empId, best);
+    }
+    return m;
+  }, [employees, schedule]);
+
+  // Build the row plan. In flat (non-grouped) mode this is just the
+  // filtered employee list mapped to row items; in grouped mode it
+  // interleaves a header before each station block and skips the bodies
+  // of collapsed groups. The "Unassigned" bucket gets a synthetic
+  // header so collapsing it works the same way.
+  const rowPlan = useMemo<RowPlanItem[]>(() => {
+    if (!scheduleGroupByStation) {
+      return filteredEmployees.map(emp => ({
+        kind: 'employee' as const,
+        emp,
+        stationId: primaryStationByEmp.get(emp.empId) || '',
+      }));
+    }
+    // Group employees by primary station, preserving the station-table
+    // order and putting unassigned at the end.
+    const stationOrder = new Map(stations.map((s, i) => [s.id, i]));
+    const stationName = new Map(stations.map(s => [s.id, s.name]));
+    const groups = new Map<string, Employee[]>();
+    for (const emp of filteredEmployees) {
+      const sid = primaryStationByEmp.get(emp.empId) || '';
+      if (!groups.has(sid)) groups.set(sid, []);
+      groups.get(sid)!.push(emp);
+    }
+    // Stable sort group keys by station-table index, '' (unassigned) last.
+    const sortedSids = [...groups.keys()].sort((a, b) => {
+      if (a === b) return 0;
+      if (!a) return 1;
+      if (!b) return -1;
+      return (stationOrder.get(a) ?? 999) - (stationOrder.get(b) ?? 999);
+    });
+    const plan: RowPlanItem[] = [];
+    for (const sid of sortedSids) {
+      const members = groups.get(sid)!;
+      const collapsed = collapsedGroups.has(sid || '__unassigned__');
+      plan.push({
+        kind: 'header',
+        stationId: sid || '__unassigned__',
+        stationName: sid ? (stationName.get(sid) || sid) : t('schedule.group.unassigned'),
+        count: members.length,
+        collapsed,
+      });
+      if (!collapsed) {
+        for (const emp of members) {
+          plan.push({ kind: 'employee', emp, stationId: sid });
+        }
+      }
+    }
+    return plan;
+  }, [scheduleGroupByStation, filteredEmployees, stations, primaryStationByEmp, collapsedGroups, t]);
+
+  // Variable row height — header rows are stubbier than body rows. The
+  // function form lets react-window keep its position cache correct as the
+  // plan changes (e.g. when collapsing a group).
+  const getRowHeight = React.useCallback(
+    (i: number) => rowPlan[i]?.kind === 'header' ? GROUP_HEADER_HEIGHT : ROW_HEIGHT,
+    [rowPlan],
+  );
+
+  // The viewport's natural height, capped at 600px so the modal-like
+  // scroll-within-page feel stays consistent. Now sums the actual row
+  // heights since headers are shorter than employee rows.
+  const naturalHeight = useMemo(() => {
+    let h = 0;
+    for (let i = 0; i < rowPlan.length; i++) {
+      h += rowPlan[i].kind === 'header' ? GROUP_HEADER_HEIGHT : ROW_HEIGHT;
+    }
+    return Math.min(h, 600);
+  }, [rowPlan]);
+
   // Keyboard shortcuts:
   //   • Number keys (1-9) pick the corresponding shift code from the painter
   //   • Esc / 0 clear paint mode
@@ -388,21 +581,21 @@ export function ScheduleTab({
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
             <input
               type="text"
               value={scheduleFilter}
               onChange={(e) => setScheduleFilter(e.target.value)}
               placeholder={t('schedule.searchPlaceholder')}
               aria-label={t('schedule.searchPlaceholder')}
-              className="pl-9 pr-3 py-2.5 w-64 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
+              className="ps-9 pe-3 py-2.5 w-64 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 transition-all shadow-sm"
             />
           </div>
           <select
             value={scheduleRoleFilter}
             onChange={(e) => setScheduleRoleFilter(e.target.value)}
             aria-label={t('schedule.allRoles')}
-            className="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
+            className="px-3 py-2.5 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all shadow-sm"
           >
             <option value="all">{t('schedule.allRoles')}</option>
             {rosterRoles.map(r => <option key={r} value={r}>{r}</option>)}
@@ -420,7 +613,7 @@ export function ScheduleTab({
               'px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center gap-1.5 border',
               scheduleViolationsOnly
                 ? 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed',
+                : 'bg-white dark:bg-slate-800/60 text-slate-600 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed',
             )}
           >
             <AlertTriangle className="w-3 h-3" />
@@ -428,7 +621,7 @@ export function ScheduleTab({
             {violationCount > 0 && (
               <span className={cn(
                 'px-1.5 py-0.5 rounded text-[9px] font-mono',
-                scheduleViolationsOnly ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700',
+                scheduleViolationsOnly ? 'bg-white/20 text-white' : 'bg-rose-100 dark:bg-rose-500/25 text-rose-700 dark:text-rose-200',
               )}>{violationCount}</span>
             )}
           </button>
@@ -444,14 +637,14 @@ export function ScheduleTab({
               'px-3 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center gap-1.5 border',
               scheduleGroupByStation
                 ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
+                : 'bg-white dark:bg-slate-800/60 text-slate-600 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800',
             )}
           >
             <Wrench className="w-3 h-3" />
             {t('schedule.filter.groupByStation')}
           </button>
           {(scheduleFilter || scheduleRoleFilter !== 'all' || scheduleViolationsOnly || scheduleGroupByStation) && (
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
               {filteredEmployees.length}/{employees.length}
             </span>
           )}
@@ -511,7 +704,7 @@ export function ScheduleTab({
             <button
               onClick={onUndo}
               title={`${t('action.undoLast')} (${scheduleUndoStack.length})`}
-              className="flex items-center gap-2 bg-white text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
+              className="apple-press flex items-center gap-2 bg-white dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
             >
               <ChevronLeft className="w-4 h-4" />
               {t('action.undoLast')}
@@ -521,7 +714,7 @@ export function ScheduleTab({
             <button
               onClick={onUndoCell}
               title={t('action.undoCell.tooltip', { count: cellUndoDepth })}
-              className="flex items-center gap-2 bg-white text-slate-700 border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
+              className="apple-press flex items-center gap-2 bg-white dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
             >
               <Undo2 className="w-4 h-4" />
               {t('action.undoCell')} ({cellUndoDepth})
@@ -541,7 +734,7 @@ export function ScheduleTab({
           <button
             onClick={() => window.print()}
             title={t('schedule.print.tooltip')}
-            className="flex items-center gap-2 bg-white text-slate-700 border border-slate-200 px-3 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
+            className="apple-press flex items-center gap-2 bg-white dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-3 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
           >
             <Printer className="w-4 h-4" />
             {t('schedule.print')}
@@ -588,7 +781,7 @@ export function ScheduleTab({
           </div>
         </div>
       )}
-      <div dir="ltr" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div dir="ltr" className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {paintMode && (
           <div className={cn(
             "bg-blue-600 text-white px-4 py-1 text-[9px] font-bold uppercase tracking-widest text-center shadow-lg border-b border-blue-700",
@@ -628,9 +821,9 @@ export function ScheduleTab({
             column zone in the rail so the rail's thumb maps cleanly to the
             day-cell area only — the names column stays anchored at the
             left both in the grid AND in the rail. */}
-        <div className="sticky top-0 z-30 flex bg-slate-50/80 backdrop-blur-sm border-b border-slate-200">
+        <div className="sticky top-0 z-30 flex bg-slate-50/80 dark:bg-slate-800/80 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700">
           <div
-            className="sticky left-0 z-10 bg-slate-50 border-r border-slate-200 shadow-[4px_0_8px_rgba(0,0,0,0.04)] flex items-center px-4 text-[9px] font-black text-slate-400 uppercase tracking-widest"
+            className="sticky left-0 z-10 bg-slate-50 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 shadow-[4px_0_8px_rgba(0,0,0,0.04)] flex items-center px-4 text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest"
             style={{ width: NAME_COL_WIDTH, minWidth: NAME_COL_WIDTH, height: 14 }}
             aria-hidden
           >
@@ -648,9 +841,9 @@ export function ScheduleTab({
         <div className="overflow-x-auto" ref={gridScrollRef}>
           <div style={{ width: totalGridWidth, minWidth: totalGridWidth }}>
             {/* Sticky day header */}
-            <div className="flex bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
+            <div className="flex bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-20">
               <div
-                className="sticky left-0 bg-slate-50 z-30 px-4 py-4 border-r border-slate-200 shadow-[4px_0_10px_rgba(0,0,0,0.05)] tracking-tighter text-[10px] uppercase font-black text-slate-500 flex items-center"
+                className="sticky left-0 bg-slate-50 dark:bg-slate-800 z-30 px-4 py-4 border-r border-slate-200 dark:border-slate-700 shadow-[4px_0_10px_rgba(0,0,0,0.05)] tracking-tighter text-[10px] uppercase font-black text-slate-500 dark:text-slate-300 flex items-center"
                 style={{ width: NAME_COL_WIDTH, minWidth: NAME_COL_WIDTH }}
               >
                 {t('schedule.personnelDirectory')}
@@ -671,10 +864,10 @@ export function ScheduleTab({
                     key={d}
                     title={isHoli ? `${d} ${format(date, 'MMM')} — ${holiday.name}` : `${d} ${format(date, 'MMM')} (${format(date, 'EEEE')})`}
                     className={cn(
-                      "py-3 text-center border-r border-slate-100 tracking-tighter flex flex-col items-center relative",
-                      weekendDay && "bg-slate-100/60",
-                      isHoli && "bg-red-50/70",
-                      isToday && "bg-blue-50/80 ring-2 ring-blue-400 ring-inset z-10",
+                      "py-3 text-center border-r schedule-grid-line tracking-tighter flex flex-col items-center relative",
+                      weekendDay && "bg-slate-100/60 dark:bg-slate-800/80",
+                      isHoli && "bg-red-50/70 dark:bg-red-500/15",
+                      isToday && "bg-blue-50/80 dark:bg-blue-500/20 ring-2 ring-blue-400 dark:ring-blue-300 ring-inset z-10",
                     )}
                     style={{ width: DAY_CELL_WIDTH, minWidth: DAY_CELL_WIDTH }}
                   >
@@ -682,17 +875,21 @@ export function ScheduleTab({
                       <span className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-red-500" aria-label="Holiday" />
                     )}
                     {isToday && (
-                      <span className="absolute -top-0.5 right-0.5 text-[7px] font-black text-blue-600 uppercase tracking-tighter">●</span>
+                      <span className="absolute -top-0.5 right-0.5 text-[7px] font-black text-blue-600 dark:text-blue-300 uppercase tracking-tighter">●</span>
                     )}
                     <span className={cn(
                       "font-black text-[11px]",
-                      isToday ? "text-blue-700" : (weekendDay || isHoli) ? "text-red-600" : "text-slate-900",
+                      isToday
+                        ? "text-blue-700 dark:text-blue-200"
+                        : (weekendDay || isHoli)
+                          ? "text-red-600 dark:text-red-300"
+                          : "text-slate-900 dark:text-slate-100",
                     )}>
                       {d}
                     </span>
                     <span className={cn(
                       "text-[7px] font-bold uppercase shrink-0 leading-none mt-0.5",
-                      isToday ? "text-blue-500" : "text-slate-400",
+                      isToday ? "text-blue-500 dark:text-blue-300" : "text-slate-400 dark:text-slate-500",
                     )}>
                       {format(date, 'EEE')}
                     </span>
@@ -703,17 +900,17 @@ export function ScheduleTab({
 
             {/* Virtualised body */}
             {filteredEmployees.length === 0 && employees.length > 0 ? (
-              <div className="p-12 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              <div className="p-12 text-center text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                 {t('schedule.noMatches')}
               </div>
             ) : (
               <List
-                rowCount={filteredEmployees.length}
-                rowHeight={ROW_HEIGHT}
-                defaultHeight={Math.min(filteredEmployees.length * ROW_HEIGHT, 600)}
+                rowCount={rowPlan.length}
+                rowHeight={getRowHeight}
+                defaultHeight={naturalHeight}
                 rowComponent={ScheduleRow}
                 rowProps={{
-                  employees: filteredEmployees,
+                  rowPlan,
                   days,
                   schedule,
                   onCellClick: handleCellClick,
@@ -721,6 +918,9 @@ export function ScheduleTab({
                   onCellMouseEnter: handleCellMouseEnter,
                   recentlyChangedCells,
                   statsByEmpId,
+                  onToggleCollapse: toggleCollapse,
+                  groupingEnabled: scheduleGroupByStation,
+                  totalGridWidth,
                 }}
               />
             )}
@@ -744,27 +944,27 @@ export function ScheduleTab({
             if (stats.daysOnLeave > 0) onLeaveAnyDay++;
           }
           return (
-            <div className="bg-slate-50 border-t border-slate-200 px-4 py-2 flex items-center gap-4 flex-wrap text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+            <div className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700 px-4 py-2 flex items-center gap-4 flex-wrap text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-widest">
               <div className="flex items-center gap-1.5">
-                <span className="text-slate-400">{t('schedule.footer.totalHrs')}:</span>
-                <span className="font-black text-slate-800">{totalHrs.toFixed(0)}h</span>
+                <span className="text-slate-400 dark:text-slate-500">{t('schedule.footer.totalHrs')}:</span>
+                <span className="font-black text-slate-800 dark:text-slate-100">{totalHrs.toFixed(0)}h</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                <span className="text-slate-400">{t('schedule.footer.saturated')}:</span>
-                <span className="font-black text-red-700">{saturated}</span>
+                <span className="text-slate-400 dark:text-slate-500">{t('schedule.footer.saturated')}:</span>
+                <span className="font-black text-red-700 dark:text-red-300">{saturated}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                <span className="text-slate-400">{t('schedule.footer.nearCap')}:</span>
-                <span className="font-black text-amber-700">{nearCap}</span>
+                <span className="text-slate-400 dark:text-slate-500">{t('schedule.footer.nearCap')}:</span>
+                <span className="font-black text-amber-700 dark:text-amber-300">{nearCap}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span className="text-slate-400">{t('schedule.footer.onLeaveAny')}:</span>
-                <span className="font-black text-emerald-700">{onLeaveAnyDay}</span>
+                <span className="text-slate-400 dark:text-slate-500">{t('schedule.footer.onLeaveAny')}:</span>
+                <span className="font-black text-emerald-700 dark:text-emerald-300">{onLeaveAnyDay}</span>
               </div>
-              <div className="ml-auto text-slate-400 normal-case font-mono">
+              <div className="ml-auto text-slate-400 dark:text-slate-500 normal-case font-mono">
                 {filteredEmployees.length}/{employees.length} {t('schedule.footer.employees')}
               </div>
             </div>
@@ -851,7 +1051,7 @@ function AutoScheduleRangePicker({
         onClick={() => onRunPreserve(buildRange())}
         disabled={disabled}
         title={disabled ? (disabledReason || '') : t('action.runAutoSchedulePreserve.tooltip')}
-        className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+        className="apple-press flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-emerald-700 shadow-lg shadow-emerald-500/25 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:hover:bg-slate-300 dark:disabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:shadow-none disabled:text-slate-500"
       >
         <Wand2 className="w-4 h-4" />
         {t('action.runAutoSchedulePreserve')}
@@ -861,7 +1061,7 @@ function AutoScheduleRangePicker({
         onClick={() => onRunFresh(buildRange())}
         disabled={disabled}
         title={disabled ? (disabledReason || '') : undefined}
-        className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:bg-slate-300 disabled:hover:bg-slate-300 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+        className="apple-press flex items-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-500/25 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:hover:bg-slate-300 dark:disabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:shadow-none disabled:text-slate-500"
       >
         <Sparkles className="w-4 h-4" />
         {t('action.runAutoSchedule')}
@@ -874,8 +1074,8 @@ function AutoScheduleRangePicker({
         className={cn(
           'p-2.5 rounded-xl border transition-all shadow-sm flex items-center gap-1',
           isFullMonth
-            ? 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+            ? 'bg-white dark:bg-slate-800/60 text-slate-600 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+            : 'bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-200 border-blue-200 dark:border-blue-500/30 hover:bg-blue-100 dark:hover:bg-blue-500/25',
           'disabled:opacity-40 disabled:cursor-not-allowed',
         )}
         aria-label={t('schedule.runAuto.range.tooltip')}
@@ -887,46 +1087,46 @@ function AutoScheduleRangePicker({
       </button>
 
       {open && (
-        <div className="absolute top-full mt-2 end-0 z-50 w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 space-y-3">
+        <div className="absolute top-full mt-2 end-0 z-50 w-96 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl p-4 space-y-3">
           <div>
-            <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">{t('schedule.runAuto.range.title')}</p>
-            <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">{t('schedule.runAuto.range.body')}</p>
+            <p className="text-[10px] font-black text-slate-700 dark:text-slate-100 uppercase tracking-widest">{t('schedule.runAuto.range.title')}</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed mt-0.5">{t('schedule.runAuto.range.body')}</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 block">{t('schedule.runAuto.range.start')}</label>
+              <label className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">{t('schedule.runAuto.range.start')}</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={e => setStartDate(e.target.value)}
-                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-mono font-bold text-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
               />
             </div>
             <div>
-              <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 block">{t('schedule.runAuto.range.end')}</label>
+              <label className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">{t('schedule.runAuto.range.end')}</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={e => setEndDate(e.target.value)}
-                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-mono font-bold text-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
               />
             </div>
           </div>
-          <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+          <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-widest">
             <span>{t('schedule.runAuto.range.coverage')}</span>
-            <span className="font-mono text-slate-800">
+            <span className="font-mono text-slate-800 dark:text-slate-100">
               {dayCount} {dayCount === 1 ? t('schedule.runAuto.range.day') : t('schedule.runAuto.range.days')}
               {crossesMonth && ` · ${t('schedule.runAuto.range.crossesMonths')}`}
             </span>
           </div>
           {showPeriodHint && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 leading-relaxed">
+            <div className="bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 rounded-lg p-2.5 text-[10px] text-amber-800 dark:text-amber-200 leading-relaxed">
               <AlertTriangle className="w-3 h-3 inline-block mr-1" />
               {t('schedule.runAuto.range.minHint')}
             </div>
           )}
           {crossesMonth && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-[10px] text-blue-800 leading-relaxed">
+            <div className="bg-blue-50 dark:bg-blue-500/15 border border-blue-200 dark:border-blue-500/30 rounded-lg p-2.5 text-[10px] text-blue-800 dark:text-blue-200 leading-relaxed">
               <Calendar className="w-3 h-3 inline-block mr-1" />
               {t('schedule.runAuto.range.crossMonthNote')}
             </div>
@@ -934,13 +1134,13 @@ function AutoScheduleRangePicker({
           <div className="flex gap-2 pt-1">
             <button
               onClick={() => { setStartDate(monthFirst); setEndDate(monthLast); setOpen(false); }}
-              className="flex-1 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+              className="flex-1 px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
             >
               {t('schedule.runAuto.range.fullMonth')}
             </button>
             <button
               onClick={() => setOpen(false)}
-              className="flex-1 px-3 py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all"
+              className="flex-1 px-3 py-2 bg-slate-900 dark:bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 dark:hover:bg-blue-500 transition-all"
             >
               {t('action.done')}
             </button>

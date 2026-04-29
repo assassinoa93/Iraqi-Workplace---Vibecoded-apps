@@ -2,6 +2,46 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v2.6.0 — 2026-04-29
+
+**Apple-polish UX overhaul.** The biggest visual sweep since v1: a coherent design-token system, a comprehensively dark dark mode, visible schedule grid lines in both themes, and Excel-style pivot grouping in the schedule. Two user-driven fixes round it out — the Workforce Planning forecast now projects movable holidays by month/day instead of dropping them, and the Schedule grid's "Group by station" toggle now collapses station blocks instead of just sorting rows.
+
+**Dark mode + design tokens**
+- New CSS variable layer (`--surface`, `--foreground`, `--border`, `--ring`, `--grid-line`, …) drives the whole app. Light palette stays slate-based; dark palette is tuned warmer than raw `slate-900` — a graphite GitHub-Dark feel that doesn't strain on long sessions. Sidebar uses softer `#161b22` / `#1c2230` instead of pure `#1E293B` / `#0F172A`.
+- Comprehensive dark-mode global overrides for previously washed-out tokens: every tinted surface (`bg-blue-50`, `bg-emerald-50`, `bg-amber-50`, `bg-rose-50`, `bg-red-50`, `bg-indigo-50`, `bg-purple-50`, `bg-yellow-50` plus their `/30` `/40` `/50` `/70` `/80` opacity variants and `bg-*-100` solid versions) now picks an alpha-tinted hue against the dark surface instead of bleeding through as off-white. Same for hover surfaces (`hover:bg-slate-50`, `group-hover:bg-slate-50`, `hover:bg-blue-50`, etc.) and disabled-button slate states.
+- Tinted text colors (`text-blue-700`, `text-emerald-700`, `text-amber-800`, `text-rose-700`, …) re-tone to readable shades (`-300` / `-200` / `-100`) in dark mode. Borders bump to `#2a313c` / `#3a4250` so dividers stay visible. Backdrops on modals deepen to `rgba(0,0,0,0.7)+`.
+- New shift-cell color pairs in `lib/colors.ts`. Each shift code (FS, HS, MX, OFF, AL, SL, PH, MAT, CP) ships an explicit dark variant (~15% alpha tinted background, light readable text) so the schedule cells stay semantic in dark mode rather than blending into a single off-white smudge.
+
+**Schedule grid — visible gridlines**
+- New `.schedule-grid-line` utility binds vertical day-cell borders to a CSS variable that picks a stronger value in both themes (`rgba(148,163,184,0.28)` light, `rgba(120,138,162,0.45)` dark). Pre-2.6 dark mode mapped the cell border to the same slate as the cell background — invisible. Now you can read the calendar as a grid in either theme.
+- Day header gets explicit dark contrast: weekend tint `dark:bg-slate-800/80`, holiday tint `dark:bg-red-500/15`, today highlight `dark:bg-blue-500/20` with a `ring-blue-300` inset ring. Weekday-of-week label and day numbers picked tones for both themes.
+- ScheduleCell uses `transform-gpu` + cubic-bezier easing and an explicit `dark:hover:bg-slate-700/40` for empty cells. The `isRecent` swap-highlight ring is `dark:outline-amber-300`.
+
+**Schedule — pivot-style "Group by station"**
+- Toggling "Group by station" now produces Excel-pivot-style collapsible station headers instead of just sorting rows. Each station block opens with a tinted header strip (chevron + map-pin icon + station name + headcount badge); click the header to collapse / expand the block. Collapsed station IDs persist across sessions in `localStorage` (key `iraqi-scheduler-collapsed-station-groups`).
+- Employees whose primary station can't be determined (no scheduled assignments yet) cluster under an "Unassigned" header at the bottom; collapsing it works the same way.
+- The schedule virtualizer now uses a per-row height function (38 px for headers, 48 px for employee rows) so the row plan can mix the two without losing virtualisation perf.
+
+**Workforce Planning — forecast projects ALL holidays**
+- Pre-2.6 the forecast year selector dropped movable Islamic holidays (Eid Al-Fitr, Eid Al-Adha, etc.) when projecting to 2027+ because their Hijri-determined dates can't be auto-shifted without a Hijri calendar lib. The user reading is that for budget / hiring purposes, a same-month/day approximation is more useful than dropping them entirely.
+- `projectHolidaysToYear()` now projects every holiday by month/day to the target year. Movable holidays get an `isApproximation: true` flag on the projected record, and the forecast banner shows "{count} movable holiday(s) approximated by same month/day in {year} — actual dates drift ~11 days earlier each Gregorian year. Adjust the exact dates in the Holidays tab once the official Hijri calendar for {year} is announced." instead of the old "couldn't be auto-projected" wording.
+
+**Workforce Planning — clearer FTE/PT split + annual demand profile**
+- The KPI strip used to merge FTE and PT into a single "recommended roster" number with a small "X FTE + Y PT" subtitle, and the headcount delta was a single combined figure. The user reading was that the two contract types are operationally and legally distinct — they should never be summed. Replaced with a focused 3-card anchor row (Total hours · Annual cost delta · Legal-safety premium *or* Peak month) plus a dedicated **Annual Headcount Plan** panel below.
+- The new panel is two parallel columns (FTE | PT). Each column shows: current → recommended (with a coloured Δ pill that reads `+4 FTE` / `−2 PT`), then a 4-tile "Annual demand profile" grid with **Avg / Median / Peak / Valley**. Peak and valley tiles include the month name (e.g. "Peak 8 (Apr)" / "Valley 4 (Aug)") so the supervisor reads the demand shape, not just a number. Each column ends with a one-sentence rationale that swaps with the planner mode (peak-driven for conservative, average-driven for optimal).
+- Median / peak / valley are computed from the 12-month series in `annual.byMonth`. The recommended figure stays sourced from `rollup.totalRecommendedFTE` / `rollup.totalRecommendedPartTime` so it matches the rest of the tab and the PDF / Excel exports. No backend changes.
+
+**Apple-style polish**
+- New `apple-press` utility class for primary CTA buttons: cubic-bezier ease, subtle `translateY(-1px)` on hover, `scale(0.98)` on press. `prefers-reduced-motion` disables the transform.
+- Top toolbar uses `backdrop-blur-md` with a translucent surface, hairline bottom border, and softer rounded buttons — reads as elevated chrome instead of a hard panel.
+- Sidebar TabButton: fixed-width tab-index column, blue active-stripe pinned to inline-start (RTL-correct), softer active surface (`bg-blue-500/15`).
+- LocaleSwitcher in the sidebar footer becomes a 3-button segmented theme picker (Light / Dark / System) instead of a cycle button — three states visible at once, matches macOS preference panes.
+- Generic page scrollbars get the thin pill treatment (Webkit + Firefox), tinted for both themes.
+- ConfirmModal: deeper backdrop blur, softer corner radius (`rounded-2xl`), motion uses cubic-bezier, action buttons get coloured shadow.
+
+**Compatibility**
+- All 108 tests pass. The `projectHolidaysToYear()` return shape gains `projectedFixed` + `approximatedMovable`; `skippedMovable` is kept (deprecated, always 0) for back-compat. New `PublicHoliday.isApproximation?` field is optional. No data migration needed.
+
 ## v2.5.0 — 2026-04-29
 
 **Forecasting + supply truth-telling.** Three user-driven items: a forecast-year selector for planning future years from current data, optimal-mode 'release' actions with Iraqi-law caveats, fair-share effective supply per station to fix the "35 eligible / 2 needed" double-count, and multi-day holiday support so Eid Al-Fitr can be one record instead of three.

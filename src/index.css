@@ -11,46 +11,250 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* ─── Design tokens (v2.6 Apple polish pass) ───────────────────────────────────
+   Centralised colour tokens so every surface picks from the same palette in
+   both modes. Components can opt into them via `bg-[var(--surface)]` or use
+   the named utilities below. The dark palette is tuned warmer than raw
+   slate-900 / slate-950 so the eyes don't glaze on long sessions — closer to
+   the macOS Sonoma "graphite" look. Borders are bumped up so the schedule
+   grid lines stay visible without fighting the shift cell colour. */
+:root {
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --surface-sunken: #f1f5f9;
+  --surface-elevated: #ffffff;
+  --surface-overlay: rgba(15, 23, 42, 0.45);
+  --foreground: #0f172a;
+  --foreground-muted: #475569;
+  --foreground-subtle: #64748b;
+  --foreground-faint: #94a3b8;
+  --border-subtle: #e2e8f0;
+  --border: #cbd5e1;
+  --border-strong: #94a3b8;
+  --accent: #2563eb;
+  --accent-foreground: #ffffff;
+  --ring: rgba(37, 99, 235, 0.55);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --shadow-elev: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.05);
+  --grid-line: rgba(148, 163, 184, 0.45);
+  --grid-line-soft: rgba(148, 163, 184, 0.28);
+}
+.dark {
+  --surface: #161b22;
+  --surface-muted: #1c2230;
+  --surface-sunken: #0d1117;
+  --surface-elevated: #1f2733;
+  --surface-overlay: rgba(0, 0, 0, 0.6);
+  --foreground: #e6edf3;
+  --foreground-muted: #b1bac4;
+  --foreground-subtle: #8b949e;
+  --foreground-faint: #6e7681;
+  --border-subtle: #2a313c;
+  --border: #3a4250;
+  --border-strong: #4a5260;
+  --accent: #4d8bff;
+  --accent-foreground: #ffffff;
+  --ring: rgba(77, 139, 255, 0.55);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 1px rgba(0, 0, 0, 0.25);
+  --shadow-elev: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --grid-line: rgba(120, 138, 162, 0.45);
+  --grid-line-soft: rgba(120, 138, 162, 0.22);
+  color-scheme: dark;
+}
+
 @layer base {
-  body {
-    @apply antialiased text-slate-800;
+  html, body {
+    background-color: var(--surface-sunken);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
-  .dark body {
-    @apply text-slate-200;
+  body {
+    @apply antialiased;
+    color: var(--foreground);
+  }
+  /* Subtle global focus polish — Apple-style 2px ring with the accent. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  ::selection {
+    background-color: rgba(77, 139, 255, 0.35);
+    color: inherit;
   }
 }
 
 /* ─── Dark-mode global overrides ──────────────────────────────────────────────
    Component-by-component `dark:` annotation would touch every file in the
-   codebase. As a pragmatic baseline we override the most common surfaces here
-   via attribute selectors so any component using the standard slate palette
-   gets readable in dark mode without per-component edits. Components that
-   want fully custom dark styling can still add their own `dark:` classes. */
-.dark .bg-white { background-color: #1e293b !important; }
-.dark .bg-slate-50 { background-color: #0f172a !important; }
-.dark .bg-slate-50\/50 { background-color: rgba(15, 23, 42, 0.5) !important; }
-.dark .bg-\[\#F3F4F6\] { background-color: #0b1220 !important; }
-.dark .text-slate-800 { color: #e2e8f0 !important; }
-.dark .text-slate-700 { color: #cbd5e1 !important; }
-.dark .text-slate-600 { color: #94a3b8 !important; }
-.dark .text-slate-500 { color: #94a3b8 !important; }
-.dark .text-slate-400 { color: #64748b !important; }
-.dark .border-slate-100 { border-color: #1e293b !important; }
-.dark .border-slate-200 { border-color: #334155 !important; }
+   codebase. As a pragmatic baseline we override the most common surfaces
+   here via attribute selectors so any component using the standard slate
+   palette stays readable in dark mode without per-component edits.
+   The v2.6 pass extends coverage to: tinted alert/info backgrounds, ring
+   accents, sticky-header slate-50 with arbitrary opacity, badges, and
+   schedule grid lines that were previously washed-out. */
+.dark .bg-white { background-color: var(--surface) !important; }
+.dark .bg-slate-50 { background-color: var(--surface-muted) !important; }
+.dark .bg-slate-50\/50 { background-color: rgba(28, 34, 48, 0.5) !important; }
+.dark .bg-slate-50\/60 { background-color: rgba(28, 34, 48, 0.6) !important; }
+.dark .bg-slate-50\/70 { background-color: rgba(28, 34, 48, 0.7) !important; }
+.dark .bg-slate-50\/80 { background-color: rgba(28, 34, 48, 0.85) !important; }
+.dark .bg-slate-100 { background-color: #1f2733 !important; }
+.dark .bg-slate-100\/50 { background-color: rgba(31, 39, 51, 0.55) !important; }
+.dark .bg-slate-100\/60 { background-color: rgba(31, 39, 51, 0.65) !important; }
+.dark .bg-slate-200 { background-color: #2a313c !important; }
+.dark .bg-\[#F3F4F6\] { background-color: var(--surface-sunken) !important; }
+
+/* Foreground tones — pulled toward higher contrast values from the GitHub
+   dark palette so body copy reads cleanly without going pure-white. */
+.dark .text-slate-900 { color: #f1f5f9 !important; }
+.dark .text-slate-800 { color: var(--foreground) !important; }
+.dark .text-slate-700 { color: var(--foreground-muted) !important; }
+.dark .text-slate-600 { color: var(--foreground-muted) !important; }
+.dark .text-slate-500 { color: var(--foreground-subtle) !important; }
+.dark .text-slate-400 { color: var(--foreground-subtle) !important; }
+.dark .text-slate-300 { color: var(--foreground-faint) !important; }
+
+/* Borders — a single dark border token at three weights so dividers,
+   card outlines, and grid lines stay visible. */
+.dark .border-slate-100 { border-color: var(--border-subtle) !important; }
+.dark .border-slate-200 { border-color: var(--border) !important; }
+.dark .border-slate-300 { border-color: var(--border-strong) !important; }
+.dark .border-slate-700 { border-color: #2a313c !important; }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border-subtle) !important; }
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
+.dark .ring-slate-200 { --tw-ring-color: var(--border) !important; }
+.dark .ring-slate-100 { --tw-ring-color: var(--border-subtle) !important; }
+
+/* Inputs / selects / textareas — softer than the surface so the field reads
+   as recessed even in dark mode. */
 .dark input,
 .dark select,
 .dark textarea {
-  background-color: #0f172a !important;
-  color: #e2e8f0 !important;
-  border-color: #334155 !important;
+  background-color: var(--surface-sunken) !important;
+  color: var(--foreground) !important;
+  border-color: var(--border) !important;
 }
+.dark input::placeholder,
+.dark textarea::placeholder { color: var(--foreground-faint) !important; }
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+.dark input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.6) opacity(0.8);
+}
+
+/* Shadows — push contrast a touch in dark mode so cards still feel lifted. */
 .dark .shadow-sm,
 .dark .shadow-md,
 .dark .shadow-lg,
 .dark .shadow-xl,
 .dark .shadow-2xl {
-  --tw-shadow-color: rgba(0, 0, 0, 0.4) !important;
+  --tw-shadow-color: rgba(0, 0, 0, 0.55) !important;
 }
+
+/* ─── Tinted accent backgrounds in dark mode ───────────────────────────────────
+   Components scatter `bg-blue-50`, `bg-emerald-50`, `bg-rose-50`, etc. for
+   info-cards and chips. In light mode they read as soft pastels; if left
+   alone in dark mode they paint pure off-white blobs over the dark surface.
+   Each token below maps the soft tint to a ~12% alpha of the same hue so
+   the chip stays semantic without screaming. */
+.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.12) !important; }
+.dark .bg-blue-50\/30 { background-color: rgba(59, 130, 246, 0.08) !important; }
+.dark .bg-blue-50\/40 { background-color: rgba(59, 130, 246, 0.1) !important; }
+.dark .bg-blue-50\/50 { background-color: rgba(59, 130, 246, 0.12) !important; }
+.dark .bg-blue-50\/70 { background-color: rgba(59, 130, 246, 0.14) !important; }
+.dark .bg-blue-50\/80 { background-color: rgba(59, 130, 246, 0.16) !important; }
+.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.18) !important; }
+.dark .border-blue-100 { border-color: rgba(59, 130, 246, 0.3) !important; }
+.dark .border-blue-200 { border-color: rgba(59, 130, 246, 0.4) !important; }
+.dark .text-blue-700 { color: #93c5fd !important; }
+.dark .text-blue-600 { color: #93c5fd !important; }
+.dark .text-blue-500 { color: #60a5fa !important; }
+
+.dark .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.12) !important; }
+.dark .bg-emerald-50\/30 { background-color: rgba(16, 185, 129, 0.08) !important; }
+.dark .bg-emerald-50\/40 { background-color: rgba(16, 185, 129, 0.1) !important; }
+.dark .bg-emerald-50\/50 { background-color: rgba(16, 185, 129, 0.12) !important; }
+.dark .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.18) !important; }
+.dark .border-emerald-100 { border-color: rgba(16, 185, 129, 0.3) !important; }
+.dark .border-emerald-200 { border-color: rgba(16, 185, 129, 0.4) !important; }
+.dark .text-emerald-700 { color: #6ee7b7 !important; }
+.dark .text-emerald-600 { color: #6ee7b7 !important; }
+
+.dark .bg-amber-50 { background-color: rgba(251, 191, 36, 0.12) !important; }
+.dark .bg-amber-50\/30 { background-color: rgba(251, 191, 36, 0.08) !important; }
+.dark .bg-amber-50\/50 { background-color: rgba(251, 191, 36, 0.12) !important; }
+.dark .bg-amber-100 { background-color: rgba(251, 191, 36, 0.2) !important; }
+.dark .border-amber-200 { border-color: rgba(251, 191, 36, 0.4) !important; }
+.dark .text-amber-700 { color: #fcd34d !important; }
+.dark .text-amber-800 { color: #fde68a !important; }
+.dark .text-amber-900 { color: #fef3c7 !important; }
+
+.dark .bg-rose-50 { background-color: rgba(244, 63, 94, 0.12) !important; }
+.dark .bg-rose-50\/30 { background-color: rgba(244, 63, 94, 0.08) !important; }
+.dark .bg-rose-100 { background-color: rgba(244, 63, 94, 0.2) !important; }
+.dark .border-rose-100 { border-color: rgba(244, 63, 94, 0.3) !important; }
+.dark .border-rose-200 { border-color: rgba(244, 63, 94, 0.4) !important; }
+.dark .text-rose-700 { color: #fda4af !important; }
+.dark .text-rose-600 { color: #fda4af !important; }
+
+.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.12) !important; }
+.dark .bg-red-50\/70 { background-color: rgba(239, 68, 68, 0.14) !important; }
+.dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.2) !important; }
+.dark .border-red-100 { border-color: rgba(239, 68, 68, 0.3) !important; }
+.dark .text-red-700 { color: #fca5a5 !important; }
+.dark .text-red-600 { color: #fca5a5 !important; }
+.dark .text-red-500 { color: #f87171 !important; }
+
+.dark .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.12) !important; }
+.dark .bg-indigo-50\/30 { background-color: rgba(99, 102, 241, 0.08) !important; }
+.dark .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.2) !important; }
+.dark .border-indigo-100 { border-color: rgba(99, 102, 241, 0.3) !important; }
+.dark .border-indigo-200 { border-color: rgba(99, 102, 241, 0.4) !important; }
+.dark .text-indigo-700 { color: #a5b4fc !important; }
+.dark .text-indigo-600 { color: #a5b4fc !important; }
+
+.dark .bg-purple-50 { background-color: rgba(168, 85, 247, 0.12) !important; }
+.dark .bg-purple-100 { background-color: rgba(168, 85, 247, 0.2) !important; }
+.dark .text-purple-700 { color: #d8b4fe !important; }
+
+.dark .bg-yellow-50 { background-color: rgba(234, 179, 8, 0.12) !important; }
+.dark .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.2) !important; }
+.dark .text-yellow-700 { color: #fde047 !important; }
+
+/* Hover surfaces — utilities like `hover:bg-slate-50` evaluate to the light
+   pastel; in dark mode the override above kicks in but the ::hover pseudo
+   class needs explicit coverage too. */
+.dark .hover\:bg-slate-50:hover { background-color: var(--surface-muted) !important; }
+.dark .hover\:bg-slate-100:hover { background-color: #2a313c !important; }
+.dark .hover\:bg-slate-200:hover { background-color: #353d4a !important; }
+.dark .group:hover .group-hover\:bg-slate-50 { background-color: var(--surface-muted) !important; }
+.dark .hover\:bg-blue-50:hover { background-color: rgba(59, 130, 246, 0.18) !important; }
+.dark .hover\:bg-emerald-50:hover { background-color: rgba(16, 185, 129, 0.18) !important; }
+.dark .hover\:bg-rose-50:hover { background-color: rgba(244, 63, 94, 0.18) !important; }
+.dark .hover\:bg-amber-50:hover { background-color: rgba(251, 191, 36, 0.18) !important; }
+.dark .hover\:bg-amber-100:hover { background-color: rgba(251, 191, 36, 0.26) !important; }
+
+/* Disabled bg slate variants used as button "off" states. */
+.dark .disabled\:bg-slate-300:disabled { background-color: #2a313c !important; }
+.dark .disabled\:hover\:bg-slate-300:disabled:hover { background-color: #2a313c !important; }
+
+/* Backdrops on modals — translate `bg-slate-900/60` to a slightly deeper
+   wash so the modal card feels properly elevated against the dim sheet. */
+.dark .bg-black\/40 { background-color: rgba(0, 0, 0, 0.7) !important; }
+.dark .bg-black\/50 { background-color: rgba(0, 0, 0, 0.75) !important; }
+.dark .bg-slate-900\/40 { background-color: rgba(0, 0, 0, 0.7) !important; }
+.dark .bg-slate-900\/60 { background-color: rgba(0, 0, 0, 0.78) !important; }
+
+/* ─── Schedule grid: visible gridlines in both themes ──────────────────────────
+   The grid uses a chequerboard of border-slate-100 (vertical day cells),
+   border-slate-200 (sticky-name divider) and ring-blue-400 (today marker).
+   The default slate-100 was almost invisible against the white surface
+   in light mode and disappeared entirely against the dark-mode surface
+   override. This block forces a stronger gridline value at both themes
+   so the calendar reads as a grid, not a bag of cells. */
+.schedule-grid-line { border-color: var(--grid-line-soft) !important; }
+.dark .schedule-grid-line { border-color: var(--grid-line) !important; }
 
 /* ─── RTL pass ────────────────────────────────────────────────────────────────
    Tailwind v4 doesn't auto-mirror directional utilities (ml-*, mr-*, pl-*,
@@ -129,6 +333,24 @@
 [dir="rtl"] .shadow-\[4px_0_10px_rgba\(0\,0\,0\,0\.05\)\] {
   box-shadow: -4px 0 10px rgba(0, 0, 0, 0.05);
 }
+.dark .shadow-\[4px_0_8px_rgba\(0\,0\,0\,0\.04\)\] {
+  box-shadow: 4px 0 8px rgba(0, 0, 0, 0.5) !important;
+}
+.dark .shadow-\[4px_0_10px_rgba\(0\,0\,0\,0\.03\)\] {
+  box-shadow: 4px 0 10px rgba(0, 0, 0, 0.45) !important;
+}
+.dark .shadow-\[4px_0_10px_rgba\(0\,0\,0\,0\.05\)\] {
+  box-shadow: 4px 0 10px rgba(0, 0, 0, 0.5) !important;
+}
+.dark[dir="rtl"] .shadow-\[4px_0_8px_rgba\(0\,0\,0\,0\.04\)\] {
+  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.5) !important;
+}
+.dark[dir="rtl"] .shadow-\[4px_0_10px_rgba\(0\,0\,0\,0\.03\)\] {
+  box-shadow: -4px 0 10px rgba(0, 0, 0, 0.45) !important;
+}
+.dark[dir="rtl"] .shadow-\[4px_0_10px_rgba\(0\,0\,0\,0\.05\)\] {
+  box-shadow: -4px 0 10px rgba(0, 0, 0, 0.5) !important;
+}
 
 /* ─── Schedule top-rail scrollbar (v1.13) ──────────────────────────────────────
    The schedule grid's native scrollbar lives at the bottom — off-screen for
@@ -156,6 +378,11 @@
   background-clip: content-box;
   border: 2px solid transparent;
 }
+.dark .schedule-top-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(203, 213, 225, 0.65);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
 
 /* ─── Sidebar scrollbar (v1.15) ────────────────────────────────────────────────
    The dark sidebar nav uses a thin pill scrollbar tinted to match the slate-
@@ -176,6 +403,41 @@
   background: rgba(148, 163, 184, 0.6);
   background-clip: content-box;
   border: 2px solid transparent;
+}
+
+/* ─── Generic Apple-style page scrollbars (v2.6) ───────────────────────────────
+   Every overflow:auto container in the app inherits a thin pill thumb so
+   modal scrollbars and the main content rail look consistent rather than
+   the OS default chunky bar. Webkit only — Firefox already gets the
+   `scrollbar-width: thin` from the body. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+.dark * {
+  scrollbar-color: rgba(148, 163, 184, 0.32) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.6);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.32);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(203, 213, 225, 0.55);
+  background-clip: content-box;
+  border: 3px solid transparent;
 }
 
 /* ─── Apple-style modern slider (v1.13) ────────────────────────────────────────
@@ -247,11 +509,22 @@
 }
 .app-slider::-moz-range-thumb:hover { transform: scale(1.08); }
 .dark .app-slider {
-  --app-slider-track: #334155;
+  --app-slider-track: #2a313c;
 }
 .dark .app-slider::-webkit-slider-thumb {
   background: #f1f5f9;
   border-color: rgba(255, 255, 255, 0.06);
+}
+.dark .app-slider::-moz-range-thumb {
+  background: #f1f5f9;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* RTL: native ranges still go left → right. Flip the slider track for
+   Arabic so the filled portion grows from the start of the line in the
+   visual reading direction. */
+[dir="rtl"] .app-slider {
+  transform: scaleX(-1);
 }
 
 /* ─── Tab transition easing (v1.13) ────────────────────────────────────────────
@@ -263,6 +536,32 @@
   opacity: 1; transform: translateY(0);
   transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
               transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ─── Apple polish: button micro-interactions (v2.6) ───────────────────────────
+   Every primary CTA button across the app uses `transition-all` already.
+   We tighten the curve and add a tiny scale on hover so the click feels
+   springier without burning frames. Applies to elements with class
+   `apple-press` — opt-in so destructive buttons don't get extra movement. */
+.apple-press {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              background-color 180ms ease,
+              border-color 180ms ease;
+}
+.apple-press:hover { transform: translateY(-1px); }
+.apple-press:active { transform: translateY(0) scale(0.98); }
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-press,
+  .apple-press:hover,
+  .apple-press:active {
+    transform: none;
+    transition: none;
+  }
+  .tab-transition-enter-active {
+    transition: none;
+  }
 }
 
 /* ─── Print stylesheet ─────────────────────────────────────────────────────────

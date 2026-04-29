@@ -3,6 +3,7 @@ import {
   Users, TrendingUp, Minus, Sparkles, Info,
   MapPin, ChevronDown, ChevronUp, Calendar, Activity, ShieldCheck,
   Zap, Download, Eye, GitCompareArrows, FileSpreadsheet, AlertTriangle, ChevronLeft, ChevronRight,
+  Briefcase, Clock4, ArrowUp, ArrowDown, ArrowRight,
 } from 'lucide-react';
 import { Employee, Shift, Station, StationGroup, PublicHoliday, Config, Schedule } from '../types';
 import { Card, ComparativeKpi } from '../components/Primitives';
@@ -63,22 +64,23 @@ export function WorkforcePlanningTab(props: Props) {
   const [forecastYear, setForecastYear] = useState<number>(config.year);
 
   // Build a synthetic config when forecasting a different year. Holidays
-  // also need projection: fixed-Gregorian holidays shift to the same
-  // month/day in the target year; movable holidays carry through only
-  // if their date already falls in the target year (we can't
-  // auto-shift Hijri-based dates without a Hijri calendar lib).
+  // are projected by month/day to the target year — both fixed-Gregorian
+  // and movable Islamic holidays. Movable ones are an approximation
+  // (Hijri-determined dates drift ~11 days per Gregorian year) but are
+  // useful for budget / hiring forecasts; the supervisor can override
+  // exact dates in the Holidays tab once the official Hijri calendar is
+  // announced.
   const isForecasting = forecastYear !== config.year;
-  const { forecastConfig, forecastHolidays, projectedFixedCount, skippedMovableCount } = useMemo(() => {
+  const { forecastConfig, forecastHolidays, projectedFixedCount, approximatedMovableCount } = useMemo(() => {
     if (!isForecasting) {
-      return { forecastConfig: config, forecastHolidays: holidays, projectedFixedCount: 0, skippedMovableCount: 0 };
+      return { forecastConfig: config, forecastHolidays: holidays, projectedFixedCount: 0, approximatedMovableCount: 0 };
     }
-    const { projected, skippedMovable } = projectHolidaysToYear(holidays, forecastYear);
-    const fixedCount = projected.length;
+    const { projected, projectedFixed, approximatedMovable } = projectHolidaysToYear(holidays, forecastYear);
     return {
       forecastConfig: { ...config, year: forecastYear },
       forecastHolidays: projected,
-      projectedFixedCount: fixedCount,
-      skippedMovableCount: skippedMovable,
+      projectedFixedCount: projectedFixed,
+      approximatedMovableCount: approximatedMovable,
     };
   }, [isForecasting, config, holidays, forecastYear]);
 
@@ -103,6 +105,64 @@ export function WorkforcePlanningTab(props: Props) {
     : annual.byMonth[annual.peakMonthIndex - 1];
 
   const fmtIQD = (n: number) => Math.round(Math.abs(n)).toLocaleString();
+
+  // v2.6.0 — five-number annual headcount summary, computed separately
+  // for FTE and PT so the supervisor reads the demand profile clearly:
+  //   • Avg, median  — central tendency over the year
+  //   • Peak (with month name)  — highest single-month demand
+  //   • Valley (with month name)  — lowest single-month demand
+  //   • Recommended  — the year-round target the planner suggests
+  //                    (peak-driven in conservative mode, average-driven
+  //                     in optimal mode — surfaced via `rollup.totalRecommended*`)
+  // Current FT / PT split keys off the same FTE threshold used by the
+  // Excel export and the rest of the app (`contractedWeeklyHrs >=
+  // standardWeeklyHrsCap` ⇒ FTE).
+  const headcountStats = useMemo(() => {
+    const fteSeries = annual.byMonth.map(m => m.recommendedFTE);
+    const ptSeries = annual.byMonth.map(m => m.recommendedPartTime);
+    const fiveNumber = (series: number[]) => {
+      if (series.length === 0) return { avg: 0, median: 0, peak: 0, valley: 0, peakMonthIndex: 1, valleyMonthIndex: 1 };
+      let peak = series[0];
+      let valley = series[0];
+      let peakIdx = 1;
+      let valleyIdx = 1;
+      let sum = 0;
+      for (let i = 0; i < series.length; i++) {
+        const v = series[i];
+        sum += v;
+        if (v > peak) { peak = v; peakIdx = i + 1; }
+        if (v < valley) { valley = v; valleyIdx = i + 1; }
+      }
+      const sorted = [...series].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      return { avg: sum / series.length, median, peak, valley, peakMonthIndex: peakIdx, valleyMonthIndex: valleyIdx };
+    };
+    const cap = forecastConfig.standardWeeklyHrsCap || 48;
+    const currentFTE = employees.filter(e => (e.contractedWeeklyHrs || cap) >= cap).length;
+    const currentPT = employees.length - currentFTE;
+    const fteStats = fiveNumber(fteSeries);
+    const ptStats = fiveNumber(ptSeries);
+    const monthName = (i: number) => annual.byMonth[i - 1]?.monthName ?? '';
+    return {
+      fte: {
+        ...fteStats,
+        peakMonth: monthName(fteStats.peakMonthIndex),
+        valleyMonth: monthName(fteStats.valleyMonthIndex),
+        current: currentFTE,
+        recommended: rollup.totalRecommendedFTE,
+        delta: rollup.totalRecommendedFTE - currentFTE,
+      },
+      pt: {
+        ...ptStats,
+        peakMonth: monthName(ptStats.peakMonthIndex),
+        valleyMonth: monthName(ptStats.valleyMonthIndex),
+        current: currentPT,
+        recommended: rollup.totalRecommendedPartTime,
+        delta: rollup.totalRecommendedPartTime - currentPT,
+      },
+    };
+  }, [annual, employees, rollup, forecastConfig.standardWeeklyHrsCap]);
 
   const hasInputs = stations.length > 0;
   const hasDemand = annual.annualRequiredHours > 0;
@@ -216,8 +276,8 @@ export function WorkforcePlanningTab(props: Props) {
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-[11px] font-black text-amber-800 uppercase tracking-widest">{t('workforce.forecast.banner.title', { year: forecastYear })}</p>
             <p className="text-[11px] text-amber-800 leading-relaxed">{t('workforce.forecast.banner.body', { year: forecastYear, projected: projectedFixedCount })}</p>
-            {skippedMovableCount > 0 && (
-              <p className="text-[11px] text-amber-700 leading-relaxed">{t('workforce.forecast.banner.skippedMovable', { count: skippedMovableCount, year: forecastYear })}</p>
+            {approximatedMovableCount > 0 && (
+              <p className="text-[11px] text-amber-700 leading-relaxed">{t('workforce.forecast.banner.approximatedMovable', { count: approximatedMovableCount, year: forecastYear })}</p>
             )}
           </div>
         </Card>
@@ -270,84 +330,78 @@ export function WorkforcePlanningTab(props: Props) {
             </div>
           </Card>
 
-          {/* ── Annual KPI strip ────────────────────────────────────────── */}
-          {!idealOnly ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="p-5 bg-slate-900 text-white border-0 shadow-xl">
-                <p className="text-[10px] font-black uppercase tracking-widest text-blue-300 mb-2">{t('workforce.annual.kpi.totalHours')}</p>
-                <p className="text-3xl font-black tracking-tight">{Math.round(annual.annualRequiredHours).toLocaleString()}</p>
-                <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-wider">{t('workforce.annual.kpi.totalHoursSub')}</p>
-              </Card>
-              <Card className="p-5 bg-slate-50 border-slate-200">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-2">{t('workforce.kpi.current')}</p>
-                <p className="text-3xl font-black tracking-tight text-slate-800">{rollup.totalCurrentEmployees}</p>
-                <p className="text-[10px] font-bold text-slate-600 mt-1 uppercase tracking-wider">
-                  {(() => {
-                    const ft = employees.filter(e => (e.contractedWeeklyHrs || config.standardWeeklyHrsCap) >= config.standardWeeklyHrsCap).length;
-                    const pt = employees.length - ft;
-                    return pt > 0 ? `${ft} FT + ${pt} PT` : t('workforce.kpi.currentSub');
-                  })()}
-                </p>
-              </Card>
-              <Card className="p-5 bg-emerald-50 border-emerald-200">
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-2">{t('workforce.kpi.recommended')}</p>
-                <p className="text-3xl font-black tracking-tight text-emerald-700">{rollup.totalRecommendedFTE + rollup.totalRecommendedPartTime}</p>
-                <p className="text-[10px] font-bold text-emerald-600 mt-1 uppercase tracking-wider">
-                  {rollup.totalRecommendedFTE} FTE + {rollup.totalRecommendedPartTime} PT
-                </p>
-              </Card>
+          {/* ── Annual anchor row (kept tight on purpose) ─────────────────
+              Two stable cards: total hours of demand and the year's
+              salary delta vs the current roster. Headcount detail moves
+              to the dedicated "Annual Headcount Plan" panel below, where
+              FTE and PT are split out properly. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Card className="p-5 bg-slate-900 text-white border-0 shadow-xl">
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-300 mb-2">{t('workforce.annual.kpi.totalHours')}</p>
+              <p className="text-3xl font-black tracking-tight">{Math.round(annual.annualRequiredHours).toLocaleString()}</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-wider">{t('workforce.annual.kpi.totalHoursSub')}</p>
+            </Card>
+            {!idealOnly ? (
               <Card className={cn(
                 "p-5 border",
                 annual.annualDelta < 0 ? "bg-emerald-50 border-emerald-200" : annual.annualDelta > 0 ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200",
               )}>
                 <p className={cn(
                   "text-[10px] font-black uppercase tracking-widest mb-2",
-                  annual.annualDelta < 0 ? "text-emerald-700" : annual.annualDelta > 0 ? "text-rose-700" : "text-slate-600",
+                  annual.annualDelta < 0 ? "text-emerald-700 dark:text-emerald-300" : annual.annualDelta > 0 ? "text-rose-700 dark:text-rose-300" : "text-slate-600 dark:text-slate-300",
                 )}>{t('workforce.annual.kpi.annualDelta')}</p>
                 <p className={cn(
                   "text-2xl font-black tracking-tight",
-                  annual.annualDelta < 0 ? "text-emerald-700" : annual.annualDelta > 0 ? "text-rose-700" : "text-slate-700",
+                  annual.annualDelta < 0 ? "text-emerald-700 dark:text-emerald-300" : annual.annualDelta > 0 ? "text-rose-700 dark:text-rose-300" : "text-slate-700 dark:text-slate-200",
                 )}>
                   {annual.annualDelta >= 0 ? '+' : '−'}{fmtIQD(annual.annualDelta)}
                 </p>
                 <p className={cn(
                   "text-[10px] font-bold mt-1",
-                  annual.annualDelta < 0 ? "text-emerald-600" : annual.annualDelta > 0 ? "text-rose-600" : "text-slate-500",
-                )}>IQD / yr</p>
+                  annual.annualDelta < 0 ? "text-emerald-600 dark:text-emerald-300" : annual.annualDelta > 0 ? "text-rose-600 dark:text-rose-300" : "text-slate-500 dark:text-slate-400",
+                )}>{t('workforce.annual.kpi.annualDeltaSub')}</p>
               </Card>
-            </div>
-          ) : (
-            // Ideal-only view: simpler 3-card strip showing the recommendation alone
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="p-6 bg-slate-900 text-white border-0 shadow-xl">
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300 mb-2">{t('workforce.ideal.totalRoster')}</p>
-                <p className="text-4xl font-black tracking-tight">{rollup.totalRecommendedFTE + rollup.totalRecommendedPartTime}</p>
-                <p className="text-[11px] font-bold text-slate-300 mt-2">{rollup.totalRecommendedFTE} FTE + {rollup.totalRecommendedPartTime} PT</p>
-              </Card>
-              <Card className="p-6 bg-emerald-50 border-emerald-200">
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 mb-2">{t('workforce.ideal.annualSalary')}</p>
-                <p className="text-3xl font-black tracking-tight text-emerald-700">
+            ) : (
+              <Card className="p-5 bg-emerald-50 border-emerald-200">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300 mb-2">{t('workforce.ideal.annualSalary')}</p>
+                <p className="text-2xl font-black tracking-tight text-emerald-700 dark:text-emerald-300">
                   {fmtIQD(mode === 'conservative' ? rollup.annualConservativeSalary : rollup.annualOptimalSalary)}
                 </p>
-                <p className="text-[10px] font-bold text-emerald-600 mt-2 uppercase tracking-wider">IQD / yr</p>
+                <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-300 mt-1 uppercase tracking-wider">{t('workforce.annual.kpi.annualDeltaSub')}</p>
               </Card>
-              {mode === 'conservative' ? (
-                <Card className="p-6 bg-amber-50 border-amber-200">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-2">{t('workforce.ideal.legalPremium')}</p>
-                  <p className="text-3xl font-black tracking-tight text-amber-700">{fmtIQD(rollup.legalSafetyPremium)}</p>
-                  <p className="text-[10px] text-amber-700 leading-relaxed mt-2">{t('workforce.ideal.legalPremiumNote')}</p>
-                </Card>
-              ) : (
-                <Card className="p-6 bg-blue-50 border-blue-200">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-700 mb-2">{t('workforce.ideal.peakMonth')}</p>
-                  <p className="text-3xl font-black tracking-tight text-blue-700">
-                    {annual.byMonth[annual.peakMonthIndex - 1].monthName}
-                  </p>
-                  <p className="text-[10px] text-blue-600 mt-2">{Math.round(annual.byMonth[annual.peakMonthIndex - 1].monthlyRequiredHours).toLocaleString()}h required</p>
-                </Card>
-              )}
-            </div>
-          )}
+            )}
+            {mode === 'conservative' ? (
+              <Card className="p-5 bg-amber-50 border-amber-200">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300 mb-2">{t('workforce.ideal.legalPremium')}</p>
+                <p className="text-2xl font-black tracking-tight text-amber-700 dark:text-amber-300">{fmtIQD(rollup.legalSafetyPremium)}</p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-300 leading-relaxed mt-1">{t('workforce.ideal.legalPremiumNote')}</p>
+              </Card>
+            ) : (
+              <Card className="p-5 bg-blue-50 border-blue-200">
+                <p className="text-[10px] font-black uppercase tracking-widest text-blue-700 dark:text-blue-300 mb-2">{t('workforce.ideal.peakMonth')}</p>
+                <p className="text-2xl font-black tracking-tight text-blue-700 dark:text-blue-300">
+                  {annual.byMonth[annual.peakMonthIndex - 1].monthName}
+                </p>
+                <p className="text-[10px] text-blue-600 dark:text-blue-300 mt-1">
+                  {Math.round(annual.byMonth[annual.peakMonthIndex - 1].monthlyRequiredHours).toLocaleString()}h {t('workforce.annual.kpi.totalHoursSub').toLowerCase()}
+                </p>
+              </Card>
+            )}
+          </div>
+
+          {/* ── Annual Headcount Plan ─────────────────────────────────────
+              Splits FTE and PT into two parallel columns. Each column
+              shows: current → recommended (with delta arrow), then a
+              4-tile grid of Avg / Median / Peak / Valley with the month
+              name attached to peak/valley so the supervisor sees not just
+              "you peak at 8" but "you peak at 8 in April". The mode
+              ribbon at the top tells the reader whether the recommendation
+              is peak-driven (conservative) or average-driven (optimal). */}
+          <AnnualHeadcountPanel
+            stats={headcountStats}
+            mode={mode}
+            idealOnly={idealOnly}
+          />
 
           {/* ── Annual rollup table (v1.16: prefers GROUP rollup when
               groups exist, falls back to per-station). Groups give the
@@ -503,6 +557,273 @@ export function WorkforcePlanningTab(props: Props) {
             </button>
           </Card>
         </>
+      )}
+    </div>
+  );
+}
+
+// v2.6.0 — Annual Headcount Plan panel.
+//
+// Splits FTE and PT into two parallel columns so the supervisor reads
+// the year's demand without merging the two contract types. Each column
+// shows:
+//   • Big "current → recommended" headline + delta arrow (skipped in
+//     ideal-only view, where the recommendation stands alone)
+//   • A 4-tile grid: Average, Median, Peak (with month name), Valley
+//     (with month name) — month names are pulled from the byMonth series
+//     so the reader sees not just "you peak at 8" but "you peak at 8 in
+//     April, valley at 4 in August".
+//   • A short rationale line that swaps with the planner mode
+//     (peak-driven vs average-driven).
+//
+// Input: the `headcountStats` object computed in the parent component.
+interface HeadcountColumnStats {
+  current: number;
+  recommended: number;
+  delta: number;
+  avg: number;
+  median: number;
+  peak: number;
+  valley: number;
+  peakMonth: string;
+  valleyMonth: string;
+}
+interface HeadcountStats {
+  fte: HeadcountColumnStats;
+  pt: HeadcountColumnStats;
+}
+
+function AnnualHeadcountPanel({
+  stats, mode, idealOnly,
+}: {
+  stats: HeadcountStats;
+  mode: PlanMode;
+  idealOnly: boolean;
+}) {
+  const { t } = useI18n();
+  // PT column is mostly relevant in optimal mode; conservative mode
+  // recommends 0 PT by design (peak-driven FTE absorbs surge). Render
+  // the column either way so the supervisor sees the current PT count
+  // even when the recommendation drives it to zero.
+  return (
+    <Card className="overflow-hidden">
+      <div className="p-5 border-b border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-800/40 flex items-center gap-3">
+        <Users className="w-4 h-4 text-blue-600 dark:text-blue-300 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">
+            {t('workforce.headcount.title')}
+          </h3>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+            {mode === 'conservative'
+              ? t('workforce.headcount.subtitle.conservative')
+              : t('workforce.headcount.subtitle.optimal')}
+          </p>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
+            mode === 'conservative'
+              ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30"
+              : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/30",
+          )}
+        >
+          {mode === 'conservative' ? t('workforce.mode.conservative.label') : t('workforce.mode.optimal.label')}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-700/60">
+        <HeadcountColumn
+          icon={<Briefcase className="w-4 h-4" />}
+          tone="blue"
+          label={t('workforce.headcount.fte.label')}
+          subLabel={t('workforce.headcount.fte.sub')}
+          stats={stats.fte}
+          unit={t('workforce.headcount.unit.fte')}
+          idealOnly={idealOnly}
+          rationale={mode === 'conservative'
+            ? t('workforce.headcount.rationale.fte.conservative')
+            : t('workforce.headcount.rationale.fte.optimal')}
+        />
+        <HeadcountColumn
+          icon={<Clock4 className="w-4 h-4" />}
+          tone="purple"
+          label={t('workforce.headcount.pt.label')}
+          subLabel={t('workforce.headcount.pt.sub')}
+          stats={stats.pt}
+          unit={t('workforce.headcount.unit.pt')}
+          idealOnly={idealOnly}
+          rationale={mode === 'conservative'
+            ? t('workforce.headcount.rationale.pt.conservative')
+            : t('workforce.headcount.rationale.pt.optimal')}
+        />
+      </div>
+    </Card>
+  );
+}
+
+// One column of the AnnualHeadcountPanel. `tone` drives the accent
+// colour (blue for FTE, purple for PT). `idealOnly` flips the headline
+// from "current → recommended" to just the recommendation.
+function HeadcountColumn({
+  icon, tone, label, subLabel, stats, unit, idealOnly, rationale,
+}: {
+  icon: React.ReactNode;
+  tone: 'blue' | 'purple';
+  label: string;
+  subLabel: string;
+  stats: HeadcountColumnStats;
+  unit: string;
+  idealOnly: boolean;
+  rationale: string;
+}) {
+  const { t } = useI18n();
+  const accentText = tone === 'blue'
+    ? 'text-blue-700 dark:text-blue-200'
+    : 'text-purple-700 dark:text-purple-200';
+  const accentBg = tone === 'blue'
+    ? 'bg-blue-50 dark:bg-blue-500/15 border-blue-100 dark:border-blue-500/30'
+    : 'bg-purple-50 dark:bg-purple-500/15 border-purple-100 dark:border-purple-500/30';
+  const iconWrap = tone === 'blue'
+    ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200'
+    : 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-200';
+
+  // Round to 1dp so .333 / .667 medians and averages stay readable
+  // without lying about the precision (the underlying analyzer rounds
+  // headcount to whole people; the avg/median can land between).
+  const fmt = (n: number) => Number.isFinite(n) ? (Math.round(n * 10) / 10).toString() : '0';
+
+  // Delta arrow + colour. A positive delta (need to hire) is rose;
+  // negative (release surplus) is amber-warning in optimal mode and
+  // emerald-clean in conservative mode (where surplus = idle, not a
+  // legal action). Zero is slate.
+  const dPos = stats.delta > 0;
+  const dNeg = stats.delta < 0;
+  const deltaToneClass = dPos
+    ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/15 border-rose-200 dark:border-rose-500/30'
+    : dNeg
+      ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/15 border-amber-200 dark:border-amber-500/30'
+      : 'text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700';
+  const DeltaIcon = dPos ? ArrowUp : dNeg ? ArrowDown : Minus;
+
+  return (
+    <div className="p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className={cn("w-7 h-7 rounded-lg flex items-center justify-center", iconWrap)}>{icon}</span>
+        <div className="min-w-0">
+          <p className={cn("text-[11px] font-black uppercase tracking-widest", accentText)}>{label}</p>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">{subLabel}</p>
+        </div>
+      </div>
+
+      {idealOnly ? (
+        <div>
+          <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">
+            {t('workforce.headcount.recommended')}
+          </p>
+          <p className={cn("text-5xl font-black tracking-tight tabular-nums", accentText)}>
+            {stats.recommended}
+          </p>
+          <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wider">{unit}</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">
+              {t('workforce.headcount.current')}
+            </p>
+            <p className="text-3xl font-black text-slate-800 dark:text-slate-100 tabular-nums">{stats.current}</p>
+            <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 uppercase tracking-wider">{unit}</p>
+          </div>
+          <div>
+            <p className={cn("text-[9px] font-black uppercase tracking-widest mb-1", accentText)}>
+              {t('workforce.headcount.recommended')}
+            </p>
+            <p className={cn("text-3xl font-black tabular-nums", accentText)}>{stats.recommended}</p>
+            <p className={cn("text-[9px] font-bold mt-0.5 uppercase tracking-wider", accentText)}>{unit}</p>
+          </div>
+        </div>
+      )}
+
+      {!idealOnly && (
+        <div className={cn(
+          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
+          deltaToneClass,
+        )}>
+          <DeltaIcon className="w-3 h-3" />
+          {stats.delta > 0 ? `+${stats.delta}` : stats.delta < 0 ? `−${Math.abs(stats.delta)}` : '0'}
+          <span className="font-mono">{unit}</span>
+        </div>
+      )}
+
+      {/* Year-summary tiles. Avg + median centre the demand profile;
+          peak + valley anchor the extremes. The month name on
+          peak/valley turns "you peak at 8" into "you peak at 8 in April"
+          which is what the supervisor actually plans against. */}
+      <div className={cn("rounded-xl p-3 border space-y-2.5", accentBg)}>
+        <p className={cn("text-[9px] font-black uppercase tracking-widest", accentText)}>
+          {t('workforce.headcount.profile.title')}
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <ProfileTile
+            label={t('workforce.headcount.profile.avg')}
+            value={fmt(stats.avg)}
+            tone="neutral"
+            tooltip={t('workforce.headcount.profile.avg.tooltip')}
+          />
+          <ProfileTile
+            label={t('workforce.headcount.profile.median')}
+            value={fmt(stats.median)}
+            tone="neutral"
+            tooltip={t('workforce.headcount.profile.median.tooltip')}
+          />
+          <ProfileTile
+            label={t('workforce.headcount.profile.peak')}
+            value={String(stats.peak)}
+            month={stats.peakMonth}
+            tone="rose"
+            tooltip={t('workforce.headcount.profile.peak.tooltip')}
+          />
+          <ProfileTile
+            label={t('workforce.headcount.profile.valley')}
+            value={String(stats.valley)}
+            month={stats.valleyMonth}
+            tone="emerald"
+            tooltip={t('workforce.headcount.profile.valley.tooltip')}
+          />
+        </div>
+      </div>
+
+      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">{rationale}</p>
+    </div>
+  );
+}
+
+// One stat tile inside the year-summary grid. Renders the value, an
+// optional month sub-label (peak/valley get one), and a short header.
+// Small palette — neutral / rose (peak) / emerald (valley) — so the
+// supervisor visually parses the four numbers at a glance.
+function ProfileTile({
+  label, value, month, tone, tooltip,
+}: {
+  label: string;
+  value: string;
+  month?: string;
+  tone: 'neutral' | 'rose' | 'emerald';
+  tooltip?: string;
+}) {
+  const headerCls =
+    tone === 'rose' ? 'text-rose-700 dark:text-rose-300'
+    : tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300'
+    : 'text-slate-500 dark:text-slate-400';
+  const valueCls =
+    tone === 'rose' ? 'text-rose-700 dark:text-rose-200'
+    : tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-200'
+    : 'text-slate-800 dark:text-slate-100';
+  return (
+    <div title={tooltip} className="bg-white dark:bg-slate-900/50 rounded-lg px-2.5 py-2 border border-slate-200 dark:border-slate-700/60">
+      <p className={cn("text-[8px] font-black uppercase tracking-widest mb-0.5", headerCls)}>{label}</p>
+      <p className={cn("text-xl font-black tabular-nums leading-none", valueCls)}>{value}</p>
+      {month && (
+        <p className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mt-0.5">{month}</p>
       )}
     </div>
   );

@@ -171,6 +171,13 @@ export interface PublicHoliday {
   type: string;
   legalReference: string;
   isFixed?: boolean; // True for fixed-Gregorian holidays; false for lunar/movable
+  // v2.6.0 — set on synthetic projected records produced by
+  // `projectHolidaysToYear`. True means the date is a same-month/day
+  // approximation of a movable holiday (Hijri-determined dates drift
+  // ~11 days per Gregorian year). The Workforce Planning forecast
+  // surfaces an "approximate" badge so the supervisor knows which
+  // numbers are guaranteed exact and which are best-effort.
+  isApproximation?: boolean;
   // Optional per-holiday override of the global Art. 74 mode. When unset,
   // the holiday inherits `config.holidayCompMode`. Use this to flip a
   // single holiday to 'cash-ot' when the team can't absorb the comp-day
