@@ -56,6 +56,35 @@ interface ArrayDiffSpec<T> {
   labelOf: (item: T) => string | undefined;
 }
 
+/**
+ * Compute which top-level keys differ between two records. Used to enrich
+ * "modify" audit summaries from "Modified employee: John" to
+ * "Modified employee: John (name, salary)".
+ *
+ * Returns at most `cap` field names. Excludes some metadata-y fields the
+ * user never directly edits (id-style keys, server-stamped timestamps).
+ */
+function changedFields(prev: unknown, next: unknown, cap = 6): string[] {
+  if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return [];
+  const a = prev as Record<string, unknown>;
+  const b = next as Record<string, unknown>;
+  const skip = new Set(['updatedAt', 'updatedBy', 'createdAt', 'createdBy', 'serverTs']);
+  const keys = new Set<string>([...Object.keys(a), ...Object.keys(b)]);
+  const changed: string[] = [];
+  for (const k of keys) {
+    if (skip.has(k)) continue;
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) changed.push(k);
+    if (changed.length >= cap + 1) break;
+  }
+  return changed;
+}
+
+function summariseChangedFields(fields: string[], cap = 6): string {
+  if (!fields.length) return '';
+  if (fields.length <= cap) return ` (${fields.join(', ')})`;
+  return ` (${fields.slice(0, cap).join(', ')}, +${fields.length - cap} more)`;
+}
+
 function diffArrayDomain<T>(spec: ArrayDiffSpec<T>, prev: T[], next: T[]): AuditEntry[] {
   const ts = Date.now();
   const entries: AuditEntry[] = [];
@@ -66,8 +95,17 @@ function diffArrayDomain<T>(spec: ArrayDiffSpec<T>, prev: T[], next: T[]): Audit
   for (const [id, item] of nextById) {
     if (!prevById.has(id)) {
       entries.push({ ts, domain: spec.domain, op: 'add', targetId: id, label: spec.labelOf(item), summary: `Added ${spec.singular}: ${spec.labelOf(item) ?? id}` });
-    } else if (JSON.stringify(prevById.get(id)) !== JSON.stringify(item)) {
-      entries.push({ ts, domain: spec.domain, op: 'modify', targetId: id, label: spec.labelOf(item), summary: `Modified ${spec.singular}: ${spec.labelOf(item) ?? id}` });
+    } else {
+      const prevItem = prevById.get(id);
+      if (JSON.stringify(prevItem) !== JSON.stringify(item)) {
+        const changed = changedFields(prevItem, item);
+        const detail = summariseChangedFields(changed);
+        entries.push({
+          ts, domain: spec.domain, op: 'modify',
+          targetId: id, label: spec.labelOf(item),
+          summary: `Modified ${spec.singular}: ${spec.labelOf(item) ?? id}${detail}`,
+        });
+      }
     }
   }
   for (const [id, item] of prevById) {
@@ -141,12 +179,42 @@ export function diffAllSchedules(prev: Record<string, Schedule>, next: Record<st
   for (const m of months) {
     const a = prev?.[m] ?? {};
     const b = next?.[m] ?? {};
-    if (JSON.stringify(a) !== JSON.stringify(b)) {
-      // Strip the "scheduler_schedule_" prefix and reformat the
-      // _-separator for readability ("scheduler_schedule_2026_4" → "2026-4").
-      const display = m.replace('scheduler_schedule_', '').replace('_', '-');
-      entries.push({ ts, domain: 'schedule', op: 'replace', targetId: m, summary: `Schedule edited for ${display}` });
+    if (JSON.stringify(a) === JSON.stringify(b)) continue;
+    const display = m.replace('scheduler_schedule_', '').replace('_', '-');
+    // Walk the (empId, day) cartesian to find changed cells. For small
+    // edits the summary lists the first few; bulk operations (auto-
+    // scheduler, clear-month) say "N cells modified" instead.
+    const changedCells: Array<{ empId: string; day: string; from: string; to: string }> = [];
+    const allEmps = new Set<string>([...Object.keys(a), ...Object.keys(b)]);
+    for (const empId of allEmps) {
+      const aDays = a[empId] ?? {};
+      const bDays = b[empId] ?? {};
+      const allDays = new Set<string>([...Object.keys(aDays), ...Object.keys(bDays)]);
+      for (const d of allDays) {
+        const dn = Number(d);
+        const av = aDays[dn];
+        const bv = bDays[dn];
+        if (JSON.stringify(av) !== JSON.stringify(bv)) {
+          changedCells.push({
+            empId, day: d,
+            from: av?.shiftCode ?? '—',
+            to: bv?.shiftCode ?? '—',
+          });
+        }
+      }
     }
+    let summary: string;
+    if (changedCells.length === 0) {
+      summary = `Schedule edited for ${display}`;
+    } else if (changedCells.length <= 5) {
+      const detail = changedCells
+        .map((c) => `${c.empId} day ${c.day}: ${c.from}→${c.to}`)
+        .join(', ');
+      summary = `Schedule edited for ${display} (${detail})`;
+    } else {
+      summary = `Schedule edited for ${display} (${changedCells.length} cells)`;
+    }
+    entries.push({ ts, domain: 'schedule', op: 'replace', targetId: m, summary });
   }
   return entries;
 }

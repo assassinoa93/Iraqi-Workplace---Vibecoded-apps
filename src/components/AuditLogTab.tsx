@@ -276,8 +276,16 @@ export function AuditLogTab() {
                         {DOMAIN_LABEL_KEY[e.domain] ? t(DOMAIN_LABEL_KEY[e.domain]) : e.domain}
                       </span>
                     </div>
-                    {e.targetId && (
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{e.targetId}</p>
+                    {(e.targetId || e.actorEmail) && (
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono flex items-center gap-2 flex-wrap">
+                        {e.targetId && <span>{e.targetId}</span>}
+                        {e.actorEmail && (
+                          <>
+                            {e.targetId && <span className="text-slate-300 dark:text-slate-600">·</span>}
+                            <span className="text-slate-500 dark:text-slate-400">by {e.actorEmail}</span>
+                          </>
+                        )}
+                      </p>
                     )}
                   </div>
                   <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 shrink-0">{format(new Date(e.ts), 'HH:mm:ss')}</span>
