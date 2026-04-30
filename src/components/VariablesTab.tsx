@@ -18,6 +18,10 @@ const DOW_KEY: Record<DayOfWeek, string> = {
 interface Props {
   config: Config;
   setConfig: React.Dispatch<React.SetStateAction<Config>>;
+  // Online mode: admins can see Iraqi Labor Law thresholds but cannot edit them.
+  // Only super_admin can change these. Offline / single-user mode leaves this
+  // undefined → falsy → fully editable.
+  readOnly?: boolean;
 }
 
 // CapDef carries i18n keys (resolved at render time so language toggles update
@@ -68,9 +72,10 @@ interface SectionProps {
   caps: CapDef[];
   config: Config;
   setConfig: React.Dispatch<React.SetStateAction<Config>>;
+  readOnly?: boolean;
 }
 
-function Section({ title, subtitle, icon: Icon, iconBg, iconText, caps, config, setConfig }: SectionProps) {
+function Section({ title, subtitle, icon: Icon, iconBg, iconText, caps, config, setConfig, readOnly }: SectionProps) {
   const { t } = useI18n();
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -102,11 +107,12 @@ function Section({ title, subtitle, icon: Icon, iconBg, iconText, caps, config, 
                   type="number"
                   step={cap.step ?? 1}
                   value={current}
+                  disabled={readOnly}
                   onChange={e => {
                     const v = parseFloat(e.target.value);
                     setConfig(prev => ({ ...prev, [cap.key]: Number.isFinite(v) ? v : cap.defaultValue }));
                   }}
-                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded text-sm font-mono text-right focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded text-sm font-mono text-right focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
                 />
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest min-w-[60px]">{t(cap.unitKey)}</span>
               </div>
@@ -118,8 +124,14 @@ function Section({ title, subtitle, icon: Icon, iconBg, iconText, caps, config, 
   );
 }
 
-export function VariablesTab({ config, setConfig }: Props) {
+export function VariablesTab({ config, setConfig: rawSetConfig, readOnly }: Props) {
   const { t } = useI18n();
+  // When read-only, swallow any setConfig calls before they reach the parent
+  // so accidental changes from controls that don't honour `disabled` (e.g.
+  // raw <button> toggles below) are still no-ops at the data layer. We
+  // shadow `setConfig` locally so every onChange handler in this function
+  // picks up the guarded version automatically.
+  const setConfig: typeof rawSetConfig = readOnly ? (() => undefined) : rawSetConfig;
   return (
     <div className="space-y-8 max-w-5xl">
       <div>
@@ -128,6 +140,18 @@ export function VariablesTab({ config, setConfig }: Props) {
           {t('variables.subtitle')}
         </p>
       </div>
+
+      {readOnly && (
+        <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-xs font-bold text-amber-900 uppercase tracking-widest">Read-only</p>
+            <p className="text-[11px] text-amber-800 leading-relaxed mt-1">
+              These Iraqi Labor Law thresholds can only be edited by the super-admin. You can review the configured values here.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="p-4 bg-blue-50/60 border border-blue-100 rounded-xl flex items-start gap-3">
         <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
@@ -148,6 +172,7 @@ export function VariablesTab({ config, setConfig }: Props) {
         caps={STANDARD_CAPS}
         config={config}
         setConfig={setConfig}
+        readOnly={readOnly}
       />
 
       <Section
@@ -159,6 +184,7 @@ export function VariablesTab({ config, setConfig }: Props) {
         caps={HAZARDOUS_CAPS}
         config={config}
         setConfig={setConfig}
+        readOnly={readOnly}
       />
 
       <Section
@@ -170,6 +196,7 @@ export function VariablesTab({ config, setConfig }: Props) {
         caps={DRIVER_CAPS}
         config={config}
         setConfig={setConfig}
+        readOnly={readOnly}
       />
 
       <Section
@@ -181,6 +208,7 @@ export function VariablesTab({ config, setConfig }: Props) {
         caps={PAY_RATES}
         config={config}
         setConfig={setConfig}
+        readOnly={readOnly}
       />
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -199,12 +227,14 @@ export function VariablesTab({ config, setConfig }: Props) {
             type="time"
             value={config.shopOpeningTime}
             onChange={v => setConfig(prev => ({ ...prev, shopOpeningTime: v }))}
+            disabled={readOnly}
           />
           <SettingField
             label={t('variables.operatingWindow.defaultClose')}
             type="time"
             value={config.shopClosingTime}
             onChange={v => setConfig(prev => ({ ...prev, shopClosingTime: v }))}
+            disabled={readOnly}
           />
         </div>
         <div className="p-5 pt-0 space-y-2">
@@ -234,13 +264,14 @@ export function VariablesTab({ config, setConfig }: Props) {
                     }}
                     tone="indigo"
                     size="sm"
+                    disabled={readOnly}
                     aria-label={`Override hours for ${t(DOW_KEY[dow])}`}
                   />
                   <span className="text-[11px] font-bold text-slate-700 uppercase tracking-widest min-w-[80px]">{t(DOW_KEY[dow])}</span>
                   <input
                     type="time"
                     value={open}
-                    disabled={!enabled}
+                    disabled={!enabled || readOnly}
                     onChange={e => setOverride({ open: e.target.value, close })}
                     className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono disabled:opacity-40"
                   />
@@ -248,7 +279,7 @@ export function VariablesTab({ config, setConfig }: Props) {
                   <input
                     type="time"
                     value={close}
-                    disabled={!enabled}
+                    disabled={!enabled || readOnly}
                     onChange={e => setOverride({ open, close: e.target.value })}
                     className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono disabled:opacity-40"
                   />
@@ -276,6 +307,7 @@ export function VariablesTab({ config, setConfig }: Props) {
               checked={!!config.enforceArt86NightWork}
               onChange={v => setConfig(prev => ({ ...prev, enforceArt86NightWork: v }))}
               tone="rose"
+              disabled={readOnly}
               aria-labelledby="enforce-art86-label"
             />
             <label htmlFor="enforce-art86" id="enforce-art86-label" className="text-[11px] font-bold text-slate-700 uppercase tracking-widest cursor-pointer">{t('variables.art86.enable')}</label>
@@ -286,12 +318,14 @@ export function VariablesTab({ config, setConfig }: Props) {
               type="time"
               value={config.art86NightStart || '22:00'}
               onChange={v => setConfig(prev => ({ ...prev, art86NightStart: v }))}
+              disabled={readOnly}
             />
             <SettingField
               label={t('variables.art86.end')}
               type="time"
               value={config.art86NightEnd || '07:00'}
               onChange={v => setConfig(prev => ({ ...prev, art86NightEnd: v }))}
+              disabled={readOnly}
             />
           </div>
           <p className="text-[11px] text-slate-500 leading-relaxed">{t('variables.art86.note')}</p>
@@ -313,11 +347,13 @@ export function VariablesTab({ config, setConfig }: Props) {
             label={t('variables.ramadan.start')}
             value={config.ramadanStart ?? ''}
             onChange={v => setConfig(prev => ({ ...prev, ramadanStart: v }))}
+            disabled={readOnly}
           />
           <SettingField
             label={t('variables.ramadan.end')}
             value={config.ramadanEnd ?? ''}
             onChange={v => setConfig(prev => ({ ...prev, ramadanEnd: v }))}
+            disabled={readOnly}
           />
           <SettingField
             label={t('variables.ramadan.dailyCap')}
@@ -327,6 +363,7 @@ export function VariablesTab({ config, setConfig }: Props) {
               const n = parseFloat(v);
               setConfig(prev => ({ ...prev, ramadanDailyHrsCap: Number.isFinite(n) ? n : 6 }));
             }}
+            disabled={readOnly}
           />
         </div>
         <div className="p-5 pt-0 text-[11px] text-slate-500 leading-relaxed">
@@ -348,8 +385,9 @@ export function VariablesTab({ config, setConfig }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <button
               type="button"
+              disabled={readOnly}
               onClick={() => setConfig(prev => ({ ...prev, holidayCompMode: 'comp-day' }))}
-              className={`p-4 rounded-xl border-2 text-start transition-all ${
+              className={`p-4 rounded-xl border-2 text-start transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
                 (config.holidayCompMode ?? 'comp-day') === 'comp-day'
                   ? 'border-emerald-500 bg-emerald-50 shadow-sm'
                   : 'border-slate-200 bg-white hover:border-slate-300'
@@ -360,8 +398,9 @@ export function VariablesTab({ config, setConfig }: Props) {
             </button>
             <button
               type="button"
+              disabled={readOnly}
               onClick={() => setConfig(prev => ({ ...prev, holidayCompMode: 'cash-ot' }))}
-              className={`p-4 rounded-xl border-2 text-start transition-all ${
+              className={`p-4 rounded-xl border-2 text-start transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
                 config.holidayCompMode === 'cash-ot'
                   ? 'border-amber-500 bg-amber-50 shadow-sm'
                   : 'border-slate-200 bg-white hover:border-slate-300'
@@ -380,6 +419,7 @@ export function VariablesTab({ config, setConfig }: Props) {
                 const n = parseInt(v, 10);
                 setConfig(prev => ({ ...prev, holidayCompRecommendedDays: Number.isFinite(n) && n > 0 ? n : 7 }));
               }}
+              disabled={readOnly}
             />
             <SettingField
               label={t('variables.art74.window')}
@@ -389,6 +429,7 @@ export function VariablesTab({ config, setConfig }: Props) {
                 const n = parseInt(v, 10);
                 setConfig(prev => ({ ...prev, holidayCompWindowDays: Number.isFinite(n) && n > 0 ? n : 30 }));
               }}
+              disabled={readOnly}
             />
           </div>
           <p className="text-[11px] text-slate-500 leading-relaxed">{t('variables.art74.note')}</p>

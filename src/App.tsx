@@ -69,6 +69,8 @@ import {
   normalizeConfig, normalizeAllSchedules, normalizeCompanies,
 } from './lib/migration';
 import { useI18n } from './lib/i18n';
+import { useAuth, tabAllowed } from './lib/auth';
+import { clearMode } from './lib/mode';
 import type { DayOfWeek } from './types';
 
 // Tabs are code-split: each becomes its own chunk that loads only when the user
@@ -112,8 +114,22 @@ const csvCell = (s: string | number): string => {
 
 export default function App() {
   const { t } = useI18n();
+  // Online-mode auth context. In Offline mode no AuthProvider is mounted, so
+  // useAuth() returns the default (role=null, isAuthenticated=false) and
+  // every tab visibility / company filter check becomes a no-op — i.e. the
+  // single-user product behaves exactly as before.
+  const { role, allowedCompanies, signOut, isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dataLoaded, setDataLoaded] = useState(false);
+
+  // If the current tab becomes disallowed (e.g. supervisor signs in while
+  // activeTab is set to 'workforce' from a previous super-admin session),
+  // bounce to the Dashboard which everyone can see.
+  useEffect(() => {
+    if (!tabAllowed(activeTab, role)) {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, role]);
 
   // Companies registry. The first load seeds INITIAL_COMPANIES if the server
   // returned nothing; per-domain data is also keyed by companyId.
@@ -2076,13 +2092,13 @@ export default function App() {
         {dataLoaded && (
           <div className="p-3 border-b border-slate-800/80">
             <CompanySwitcher
-              companies={companies}
+              companies={allowedCompanies ? companies.filter(c => allowedCompanies.includes(c.id)) : companies}
               activeCompanyId={activeCompanyId}
               onSwitch={switchCompany}
               onAdd={addCompany}
               onRename={renameCompany}
               onDelete={deleteCompany}
-              locked={simMode}
+              locked={simMode || (role !== null && role !== 'super_admin')}
             />
           </div>
         )}
@@ -2091,25 +2107,25 @@ export default function App() {
             Analytics (weekly) → Setup (occasional) → System (rare). */}
         <nav className="flex-1 py-4 overflow-y-auto sidebar-scrollbar">
           <SidebarGroup label={t('sidebar.group.operations')}>
-            <TabButton active={activeTab === 'dashboard'} label={t('tab.dashboard')} index="01" icon={BarChart3} onClick={() => setActiveTab('dashboard')} />
-            <TabButton active={activeTab === 'schedule'} label={t('tab.schedule')} index="02" icon={Calendar} onClick={() => setActiveTab('schedule')} />
-            <TabButton active={activeTab === 'roster'} label={t('tab.roster')} index="03" icon={Users} onClick={() => setActiveTab('roster')} />
-            <TabButton active={activeTab === 'payroll'} label={t('tab.payroll')} index="04" icon={BarChart3} onClick={() => setActiveTab('payroll')} />
+            {tabAllowed('dashboard', role) && <TabButton active={activeTab === 'dashboard'} label={t('tab.dashboard')} index="01" icon={BarChart3} onClick={() => setActiveTab('dashboard')} />}
+            {tabAllowed('schedule', role) && <TabButton active={activeTab === 'schedule'} label={t('tab.schedule')} index="02" icon={Calendar} onClick={() => setActiveTab('schedule')} />}
+            {tabAllowed('roster', role) && <TabButton active={activeTab === 'roster'} label={t('tab.roster')} index="03" icon={Users} onClick={() => setActiveTab('roster')} />}
+            {tabAllowed('payroll', role) && <TabButton active={activeTab === 'payroll'} label={t('tab.payroll')} index="04" icon={BarChart3} onClick={() => setActiveTab('payroll')} />}
           </SidebarGroup>
           <SidebarGroup label={t('sidebar.group.analytics')}>
-            <TabButton active={activeTab === 'coverageOT'} label={t('tab.coverageOT')} index="05" icon={TrendingUp} onClick={() => setActiveTab('coverageOT')} />
-            <TabButton active={activeTab === 'workforce'} label={t('tab.workforce')} index="06" icon={Building2} onClick={() => setActiveTab('workforce')} />
-            <TabButton active={activeTab === 'reports'} label={t('tab.reports')} index="07" icon={FileSpreadsheet} onClick={() => setActiveTab('reports')} />
+            {tabAllowed('coverageOT', role) && <TabButton active={activeTab === 'coverageOT'} label={t('tab.coverageOT')} index="05" icon={TrendingUp} onClick={() => setActiveTab('coverageOT')} />}
+            {tabAllowed('workforce', role) && <TabButton active={activeTab === 'workforce'} label={t('tab.workforce')} index="06" icon={Building2} onClick={() => setActiveTab('workforce')} />}
+            {tabAllowed('reports', role) && <TabButton active={activeTab === 'reports'} label={t('tab.reports')} index="07" icon={FileSpreadsheet} onClick={() => setActiveTab('reports')} />}
           </SidebarGroup>
           <SidebarGroup label={t('sidebar.group.setup')}>
-            <TabButton active={activeTab === 'layout'} label={t('tab.layout')} index="08" icon={Layout} onClick={() => setActiveTab('layout')} />
-            <TabButton active={activeTab === 'shifts'} label={t('tab.shifts')} index="09" icon={Clock} onClick={() => setActiveTab('shifts')} />
-            <TabButton active={activeTab === 'holidays'} label={t('tab.holidays')} index="10" icon={Flag} onClick={() => setActiveTab('holidays')} />
-            <TabButton active={activeTab === 'variables'} label={t('tab.variables')} index="11" icon={Scale} onClick={() => setActiveTab('variables')} />
+            {tabAllowed('layout', role) && <TabButton active={activeTab === 'layout'} label={t('tab.layout')} index="08" icon={Layout} onClick={() => setActiveTab('layout')} />}
+            {tabAllowed('shifts', role) && <TabButton active={activeTab === 'shifts'} label={t('tab.shifts')} index="09" icon={Clock} onClick={() => setActiveTab('shifts')} />}
+            {tabAllowed('holidays', role) && <TabButton active={activeTab === 'holidays'} label={t('tab.holidays')} index="10" icon={Flag} onClick={() => setActiveTab('holidays')} />}
+            {tabAllowed('variables', role) && <TabButton active={activeTab === 'variables'} label={t('tab.variables')} index="11" icon={Scale} onClick={() => setActiveTab('variables')} />}
           </SidebarGroup>
           <SidebarGroup label={t('sidebar.group.system')}>
-            <TabButton active={activeTab === 'audit'} label={t('tab.audit')} index="12" icon={Database} onClick={() => setActiveTab('audit')} />
-            <TabButton active={activeTab === 'settings'} label={t('tab.settings')} index="13" icon={Settings} onClick={() => setActiveTab('settings')} />
+            {tabAllowed('audit', role) && <TabButton active={activeTab === 'audit'} label={t('tab.audit')} index="12" icon={Database} onClick={() => setActiveTab('audit')} />}
+            {tabAllowed('settings', role) && <TabButton active={activeTab === 'settings'} label={t('tab.settings')} index="13" icon={Settings} onClick={() => setActiveTab('settings')} />}
           </SidebarGroup>
         </nav>
 
@@ -2435,7 +2451,7 @@ export default function App() {
             )}
 
             {activeTab === 'variables' && (
-              <VariablesTab config={config} setConfig={setConfig} />
+              <VariablesTab config={config} setConfig={setConfig} readOnly={role === 'admin'} />
             )}
 
             {activeTab === 'audit' && <AuditLogTab />}
@@ -2447,6 +2463,10 @@ export default function App() {
                 onExportBackup={exportBackup}
                 onImportBackup={() => backupInputRef.current?.click()}
                 onFactoryReset={handleClearAllData}
+                isAuthenticated={isAuthenticated}
+                onSignOut={async () => { await signOut(); }}
+                onSwitchMode={() => { clearMode(); location.reload(); }}
+                allowDestructive={role === null || role === 'super_admin'}
               />
             )}
             </Suspense>

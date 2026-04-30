@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// Iraqi Labor Scheduler — Firestore security rules.
+// Phase 1 baseline: only the /users collection is accessed from the client.
+// Phase 2 will open subcollections per the migration plan in
+// C:\Users\RG\.claude\plans\if-i-want-to-polymorphic-brook.md.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function role()         { return request.auth.token.role; }
+    function isSuper()      { return request.auth != null && role() == 'super_admin'; }
+    function isAdmin()      { return request.auth != null && (role() == 'admin' || isSuper()); }
+    function isSupervisor() { return request.auth != null && role() == 'supervisor'; }
+    function hasCompany(c)  { return isSuper() || isAdmin() || (request.auth.token.companies is list && c in request.auth.token.companies); }
+
+    // /users — super_admin reads/writes all; users read their own doc.
+    match /users/{uid} {
+      allow read:  if isSuper() || (request.auth != null && request.auth.uid == uid);
+      allow write: if isSuper();
+    }
+
+    // /companies and subcollections — Phase 2 will populate this.
+    match /companies/{companyId} {
+      allow read:  if isAdmin() || hasCompany(companyId);
+      allow write: if isSuper();
+
+      match /{collection}/{docId} {
+        allow read: if hasCompany(companyId);
+        // Supervisors edit operational data; only admins+ can edit config.
+        allow write: if hasCompany(companyId) &&
+                       (collection != 'config' || isAdmin());
+      }
+
+      match /schedules/{month} {
+        allow read:  if hasCompany(companyId);
+        allow write: if hasCompany(companyId);
+      }
+    }
+
+    // /audit — admins read all, supervisors read entries scoped to their companies.
+    match /audit/{entryId} {
+      allow read:   if isAdmin() || (isSupervisor() && hasCompany(resource.data.companyId));
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+  }
+}

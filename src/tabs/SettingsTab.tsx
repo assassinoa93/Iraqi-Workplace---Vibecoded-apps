@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Upload } from 'lucide-react';
+import { Download, Upload, LogOut, Repeat } from 'lucide-react';
 import { Config } from '../types';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
@@ -10,6 +10,14 @@ interface SettingsTabProps {
   onExportBackup: () => void;
   onImportBackup: () => void;
   onFactoryReset: () => void;
+  // Online-mode session controls. Wired from App.tsx via useAuth().
+  // In Offline mode these are not rendered (isAuthenticated === false).
+  isAuthenticated?: boolean;
+  onSignOut?: () => Promise<void> | void;
+  onSwitchMode?: () => void;
+  // Whether destructive actions (factory reset, import backup) are available.
+  // True for super_admin and for offline mode; false for admin/supervisor.
+  allowDestructive?: boolean;
 }
 
 // v2.1.4 — short DOW labels via i18n. Pre-2.1.4 these were hardcoded
@@ -24,8 +32,19 @@ const DAY_KEYS = [
   'common.day.short.saturday',
 ];
 
-export function SettingsTab({ config, setConfig, onExportBackup, onImportBackup, onFactoryReset }: SettingsTabProps) {
+export function SettingsTab({
+  config, setConfig,
+  onExportBackup, onImportBackup, onFactoryReset,
+  isAuthenticated, onSignOut, onSwitchMode,
+  allowDestructive = true,
+}: SettingsTabProps) {
   const { t } = useI18n();
+  const [signingOut, setSigningOut] = React.useState(false);
+  const handleSignOut = async () => {
+    if (!onSignOut) return;
+    setSigningOut(true);
+    try { await onSignOut(); } finally { setSigningOut(false); }
+  };
   return (
     <div className="space-y-8 max-w-4xl">
       <div>
@@ -84,15 +103,54 @@ export function SettingsTab({ config, setConfig, onExportBackup, onImportBackup,
             <Download className="w-3 h-3" />
             {t('settings.exportBackup')}
           </button>
-          <button onClick={onImportBackup} className="apple-press px-6 py-2 bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-200 border border-blue-100 dark:border-blue-500/30 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-100 dark:hover:bg-blue-500/25 font-mono flex items-center gap-2">
-            <Upload className="w-3 h-3" />
-            {t('settings.importBackup')}
-          </button>
-          <button onClick={onFactoryReset} className="apple-press px-6 py-2 bg-red-50 dark:bg-red-500/15 text-red-600 dark:text-red-200 border border-red-100 dark:border-red-500/30 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 dark:hover:bg-red-500/25 font-mono">
-            {t('settings.factoryReset')}
-          </button>
+          {allowDestructive && (
+            <>
+              <button onClick={onImportBackup} className="apple-press px-6 py-2 bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-200 border border-blue-100 dark:border-blue-500/30 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-blue-100 dark:hover:bg-blue-500/25 font-mono flex items-center gap-2">
+                <Upload className="w-3 h-3" />
+                {t('settings.importBackup')}
+              </button>
+              <button onClick={onFactoryReset} className="apple-press px-6 py-2 bg-red-50 dark:bg-red-500/15 text-red-600 dark:text-red-200 border border-red-100 dark:border-red-500/30 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 dark:hover:bg-red-500/25 font-mono">
+                {t('settings.factoryReset')}
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {(isAuthenticated || onSwitchMode) && (
+        <div className="pt-8 border-t border-slate-100 dark:border-slate-700/60">
+          <div className="space-y-1 mb-4">
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Session</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-medium uppercase tracking-tighter">
+              Sign out or switch between Offline Demo and Online modes
+            </p>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            {isAuthenticated && onSignOut && (
+              <button
+                onClick={handleSignOut}
+                disabled={signingOut}
+                className={cn(
+                  "apple-press px-6 py-2 bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 dark:hover:bg-slate-800 font-mono flex items-center gap-2",
+                  signingOut && "opacity-60 cursor-wait",
+                )}
+              >
+                <LogOut className="w-3 h-3" />
+                {signingOut ? 'Signing out…' : 'Sign out'}
+              </button>
+            )}
+            {onSwitchMode && (
+              <button
+                onClick={onSwitchMode}
+                className="apple-press px-6 py-2 bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-amber-200 border border-amber-100 dark:border-amber-500/30 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-amber-100 dark:hover:bg-amber-500/25 font-mono flex items-center gap-2"
+              >
+                <Repeat className="w-3 h-3" />
+                Switch mode (reload)
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
