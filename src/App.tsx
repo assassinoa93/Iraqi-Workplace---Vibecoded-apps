@@ -71,6 +71,12 @@ import {
 import { useI18n } from './lib/i18n';
 import { useAuth, tabAllowed } from './lib/auth';
 import { clearMode } from './lib/mode';
+import {
+  subscribeCompanies as fsSubscribeCompanies,
+  addCompany as fsAddCompany,
+  renameCompany as fsRenameCompany,
+  deleteCompany as fsDeleteCompany,
+} from './lib/firestoreCompanies';
 import type { DayOfWeek } from './types';
 
 // Tabs are code-split: each becomes its own chunk that loads only when the user
@@ -118,7 +124,7 @@ export default function App() {
   // useAuth() returns the default (role=null, isAuthenticated=false) and
   // every tab visibility / company filter check becomes a no-op — i.e. the
   // single-user product behaves exactly as before.
-  const { role, allowedCompanies, signOut, isAuthenticated } = useAuth();
+  const { user, role, allowedCompanies, signOut, isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dataLoaded, setDataLoaded] = useState(false);
 
@@ -281,6 +287,67 @@ export default function App() {
     if (!activeCompanyId) return;
     window.localStorage.setItem('iraqi-scheduler-active-company', activeCompanyId);
   }, [activeCompanyId]);
+
+  // Phase 2.1 — companies registry from Firestore.
+  // In Online mode the Express /api/data fetch above still seeds initial
+  // local state, but Firestore's onSnapshot is the source of truth and
+  // overwrites the companies list with the authoritative cloud copy.
+  // Per-domain data (employees, shifts, schedules, …) still rides Express
+  // until Phase 2.2/2.3 swap those in. Offline mode does not subscribe —
+  // useAuth() returns isAuthenticated=false there.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    let unsub: (() => void) | undefined;
+    (async () => {
+      try {
+        unsub = await fsSubscribeCompanies(
+          (list) => {
+            if (cancelled) return;
+            setCompaniesState(list);
+            // Seed an empty per-domain slice for any company we don't yet
+            // have local state for (e.g. created on another machine).
+            // Phase 2.2 will move per-domain data to Firestore too — until
+            // then the placeholder keeps the active-company switch from
+            // hitting an undefined CompanyData.
+            setCompanyData((prev) => {
+              const next = { ...prev };
+              let changed = false;
+              for (const c of list) {
+                if (!next[c.id]) {
+                  next[c.id] = { ...emptyCompanyData(), config: { ...DEFAULT_CONFIG, company: c.name } };
+                  changed = true;
+                }
+              }
+              return changed ? next : prev;
+            });
+            // If the persisted activeCompanyId doesn't exist in the live
+            // list (deleted on another machine, or first-time login on a
+            // fresh project), switch to the first available so the UI
+            // doesn't get stuck on a non-existent company.
+            if (list.length && !list.some((c) => c.id === activeCompanyId)) {
+              setActiveCompanyId(list[0].id);
+            }
+          },
+          (err) => {
+            console.error('[Scheduler] Firestore companies subscribe failed:', err);
+            // Don't surface as a save error — the offline cache + Express
+            // fallback keeps the app usable. Phase 2.4 adds a connection
+            // status indicator.
+          },
+        );
+      } catch (err) {
+        console.error('[Scheduler] Firestore subscribe init failed:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (unsub) unsub();
+    };
+    // activeCompanyId is intentionally NOT a dep — we only want to react
+    // to mode changes (auth toggles), not to every company switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
 
   // Post-update notice. The Electron main process snapshots the data folder
   // before the new version touches it; we surface a one-time confirmation so
@@ -1910,7 +1977,28 @@ export default function App() {
     setSelectedEmployees(new Set());
   };
 
-  const addCompany = (name: string) => {
+  // Phase 2.1 — dual-mode dispatch: Online writes through Firestore (and the
+  // onSnapshot subscription in the effect above pushes the canonical state
+  // back into React); Offline keeps the existing local-state path verbatim.
+  const addCompany = async (name: string) => {
+    if (isAuthenticated) {
+      try {
+        const id = await fsAddCompany(name, user?.uid ?? null, '#4f46e5');
+        // Per-domain placeholder — Phase 2.2 will move this to Firestore.
+        setCompanyData(prev => prev[id] ? prev : ({
+          ...prev,
+          [id]: {
+            ...emptyCompanyData(),
+            config: { ...DEFAULT_CONFIG, company: name },
+          },
+        }));
+        setActiveCompanyId(id);
+      } catch (err) {
+        console.error('[Scheduler] Firestore addCompany failed:', err);
+      }
+      return;
+    }
+    // Offline path — unchanged.
     const id = `co-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     setCompaniesState(prev => [...prev, { id, name, color: '#4f46e5' }]);
     setCompanyData(prev => ({
@@ -1922,7 +2010,22 @@ export default function App() {
     }));
   };
 
-  const renameCompany = (id: string, name: string) => {
+  const renameCompany = async (id: string, name: string) => {
+    if (isAuthenticated) {
+      try {
+        await fsRenameCompany(id, name, user?.uid ?? null);
+      } catch (err) {
+        console.error('[Scheduler] Firestore renameCompany failed:', err);
+        return;
+      }
+      // Optimistically sync the embedded `config.company` label.
+      // Phase 2.2 will move config.company to Firestore as well.
+      setCompanyData(prev => prev[id]
+        ? { ...prev, [id]: { ...prev[id], config: { ...prev[id].config, company: name } } }
+        : prev);
+      return;
+    }
+    // Offline path — unchanged.
     setCompaniesState(prev => prev.map(c => c.id === id ? { ...c, name } : c));
     setCompanyData(prev => prev[id]
       ? { ...prev, [id]: { ...prev[id], config: { ...prev[id].config, company: name } } }
@@ -1939,7 +2042,24 @@ export default function App() {
       isOpen: true,
       title: t('company.confirmDelete.title'),
       message: t('company.confirmDelete.body', { name: target?.name || id }),
-      onConfirm: () => {
+      onConfirm: async () => {
+        if (isAuthenticated) {
+          try {
+            await fsDeleteCompany(id, user?.uid ?? null);
+            // Soft-delete in Firestore — the onSnapshot filter hides
+            // archived rows from the switcher. Per-domain data stays in
+            // memory; Phase 2.2 will cascade-clean the subcollections on
+            // hard delete from the Super Admin tab.
+            if (activeCompanyId === id) {
+              const remaining = companies.filter(c => c.id !== id);
+              if (remaining.length) setActiveCompanyId(remaining[0].id);
+            }
+          } catch (err) {
+            console.error('[Scheduler] Firestore deleteCompany failed:', err);
+          }
+          return;
+        }
+        // Offline path — unchanged.
         const remaining = companies.filter(c => c.id !== id);
         setCompaniesState(remaining);
         setCompanyData(prev => {
