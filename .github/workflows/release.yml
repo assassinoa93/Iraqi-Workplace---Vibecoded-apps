@@ -40,6 +40,17 @@ jobs:
       - name: Build Server
         run: npm run build:server
 
+      - name: Build/Release Electron App (draft for prerelease tags)
+        # Tags containing a hyphen (e.g. `v3.1.0-fb-test.1`, `v3.1.0-rc.2`)
+        # are treated as prereleases and produce DRAFT GitHub Releases.
+        # Plain SemVer tags (e.g. `v3.1.0`) publish normally. This lets the
+        # Firebase migration work tag from a feature branch without
+        # accidentally cutting a public release.
+        if: contains(github.ref_name, '-')
+        run: npx --no-install electron-builder --windows --publish always --config.releaseType=draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build/Release Electron App
         # Direct electron-builder call. The historically-used
         # `samuelmeuli/action-electron-builder@v1` is unmaintained (last
@@ -48,6 +59,7 @@ jobs:
         # gives us a clearer build log if NSIS rejects a custom include.
         # `--publish always` uploads the artifacts to the GitHub Release
         # for the tag that triggered the workflow.
+        if: ${{ !contains(github.ref_name, '-') }}
         run: npx --no-install electron-builder --windows --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -11,3 +11,14 @@ data/*.json
 !data/.gitkeep
 temp_build/
 .claude/
+# Dev mode sandboxed userData (Electron localStorage / IndexedDB / cookies)
+.dev-userdata/
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+# Firebase Admin SDK service account — NEVER commit. Master key for the project.
+secrets/
+firebase-admin/
+serviceAccount*.json
+firebase-admin*.json

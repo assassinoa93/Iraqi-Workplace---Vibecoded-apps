@@ -1,6 +1,6 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
+import { AppShell } from './components/AppShell';
 
 // v3.0.0 — webfonts bundled locally via @fontsource so the Electron app
 // works fully offline. Pre-3.0 the fonts came from Google Fonts CDN; a
@@ -39,7 +39,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
       <LocaleProvider>
-        <App />
+        <AppShell />
       </LocaleProvider>
     </ThemeProvider>
   </StrictMode>,

@@ -351,11 +351,11 @@ export function ScheduleCell({
   );
 }
 
-export function SettingField({ label, value, onChange, type = 'text', options }: { label: string; value: any; onChange: (v: string) => void; type?: 'text' | 'number' | 'select' | 'time' | 'date'; options?: string[] }) {
+export function SettingField({ label, value, onChange, type = 'text', options, disabled }: { label: string; value: any; onChange: (v: string) => void; type?: 'text' | 'number' | 'select' | 'time' | 'date'; options?: string[]; disabled?: boolean }) {
   // v2.6 — common input/select base class. Apple-style softened border,
   // explicit dark surface so the field reads as recessed against the
   // card background, and a 2px focus ring tinted to the accent.
-  const base = "w-full px-4 py-2 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 dark:focus:border-blue-400 transition-all shadow-sm placeholder-slate-400 dark:placeholder-slate-500";
+  const base = "w-full px-4 py-2 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 dark:focus:border-blue-400 transition-all shadow-sm placeholder-slate-400 dark:placeholder-slate-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-slate-900/40";
   return (
     <div className="space-y-2">
       <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">{label}</label>
@@ -363,6 +363,7 @@ export function SettingField({ label, value, onChange, type = 'text', options }:
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
           className={base}
         >
           {options?.map(o => <option key={o} value={o}>{o}</option>)}
@@ -372,6 +373,7 @@ export function SettingField({ label, value, onChange, type = 'text', options }:
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
           className={base}
         />
       )}

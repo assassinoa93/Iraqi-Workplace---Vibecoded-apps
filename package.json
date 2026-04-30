@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "build:server": "node scripts/build-server.cjs",
     "icons": "node scripts/build-icon.cjs",
+    "bootstrap-super-admin": "node scripts/bootstrap-super-admin.cjs",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://127.0.0.1:3000 && electron .\"",
     "electron:build": "npm run lint && npm run icons && npm run build && npm run build:server && electron-builder"
   },
@@ -38,6 +39,7 @@
     "date-fns": "^3.6.0",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
+    "firebase": "^11.0.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "lucide-react": "^0.378.0",
@@ -59,6 +61,7 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.20.2",
+    "firebase-admin": "^13.8.0",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5",
     "tsx": "^4.10.2",

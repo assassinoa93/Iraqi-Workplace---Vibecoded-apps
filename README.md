@@ -105,6 +105,23 @@ If you are working with the source code:
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (Recommended: v20+)
 
+### Online mode (optional, multi-user)
+The app ships with two modes:
+- **Offline Demo** — single-user, fully local. The default. Zero setup.
+- **Online** — Firebase-backed, multi-supervisor collaboration. Opt-in.
+
+This repo contains **zero credentials**. To run Online mode, create your own
+Firebase project (~10 minutes of clicks) and run a single bootstrap command.
+Step-by-step instructions: [`FIREBASE_SETUP.md`](./FIREBASE_SETUP.md).
+
+The setup gives you:
+- Email/password sign-in for the closed group of users you provision.
+- Three roles — **super_admin** (full edit, manages users), **admin**
+  (sees analytics across all companies, no edits to compliance config),
+  **supervisor** (operational tabs only, scoped to assigned companies).
+- Offline-first sync: edits work offline and queue locally; they auto-flush
+  when the connection returns.
+
 ### One-Click Build & Install
 To create your own standalone `.exe` installer:
 1. Double-click **`CREATE_MY_DESKTOP_APP.vbs`**.
