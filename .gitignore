@@ -11,6 +11,8 @@ data/*.json
 !data/.gitkeep
 temp_build/
 .claude/
+# Dev mode sandboxed userData (Electron localStorage / IndexedDB / cookies)
+.dev-userdata/
 # Firebase
 .firebase/
 firebase-debug.log
