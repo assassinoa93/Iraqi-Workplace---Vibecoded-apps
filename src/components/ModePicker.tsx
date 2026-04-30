@@ -11,16 +11,12 @@
 import React from 'react';
 import { Database, Cloud } from 'lucide-react';
 import { setMode, AppMode } from '../lib/mode';
-import { isFirebaseConfigured } from '../lib/firebase';
-import { cn } from '../lib/utils';
 
 interface Props {
   onPick: (mode: AppMode) => void;
 }
 
 export function ModePicker({ onPick }: Props) {
-  const onlineAvailable = isFirebaseConfigured();
-
   const choose = (mode: AppMode) => {
     setMode(mode);
     onPick(mode);
@@ -59,14 +55,8 @@ export function ModePicker({ onPick }: Props) {
           </button>
 
           <button
-            onClick={() => onlineAvailable && choose('online')}
-            disabled={!onlineAvailable}
-            className={cn(
-              "apple-press text-left p-8 bg-white dark:bg-slate-900 border-2 rounded-2xl transition-all group",
-              onlineAvailable
-                ? "border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-xl cursor-pointer"
-                : "border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed"
-            )}
+            onClick={() => choose('online')}
+            className="apple-press text-left p-8 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-2xl hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-xl transition-all group cursor-pointer"
           >
             <div className="w-14 h-14 rounded-xl bg-blue-50 dark:bg-blue-500/15 flex items-center justify-center mb-6 group-hover:bg-blue-100 dark:group-hover:bg-blue-500/25 transition-colors">
               <Cloud className="w-7 h-7 text-blue-600 dark:text-blue-300" />
@@ -82,11 +72,6 @@ export function ModePicker({ onPick }: Props) {
               <li>· Roles: super-admin / admin / supervisor</li>
               <li>· Auto-sync, offline-resilient</li>
             </ul>
-            {!onlineAvailable && (
-              <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-rose-500 dark:text-rose-400">
-                Firebase not configured · See .env.example
-              </p>
-            )}
           </button>
         </div>
         <p className="mt-10 text-center text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-600 font-medium">

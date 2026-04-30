@@ -2,6 +2,10 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v4.0.1 — 2026-04-30
+
+**Hot fix.** v4.0.0 ModePicker gated the **Connect Online** button on `isFirebaseConfigured()` returning true — but a fresh install never has a config yet, so the button was permanently disabled and showed *"Firebase not configured · See .env.example"*. The whole AIO onboarding flow we just shipped (in-app wizard, paste connection code, etc.) was unreachable from the launch screen. Fixed by removing the gate: the button is always clickable, and `AppShell` already handles the no-config case by routing to OnlineSetup, which shows the role picker → wizard or paste form. No other changes.
+
 ## v4.0.0 — 2026-04-30
 
 **Major version. Online mode + AIO management.** v3 hardened the offline product; v4 adds an opt-in cloud mode for teams. The single-user Offline Demo experience is preserved verbatim (no migration, no behavioural change). Online mode is multi-user, role-aware, and managed entirely from inside the app — no Firebase Console for routine work after first-time setup.
