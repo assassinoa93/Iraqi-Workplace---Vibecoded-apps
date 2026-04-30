@@ -23,6 +23,7 @@
     "build:server": "node scripts/build-server.cjs",
     "icons": "node scripts/build-icon.cjs",
     "bootstrap-super-admin": "node scripts/bootstrap-super-admin.cjs",
+    "migrate-to-firestore": "node scripts/migrate-to-firestore.cjs",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://127.0.0.1:3000 && electron .\"",
     "electron:build": "npm run lint && npm run icons && npm run build && npm run build:server && electron-builder"
   },

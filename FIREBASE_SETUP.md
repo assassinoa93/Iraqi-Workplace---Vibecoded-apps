@@ -214,6 +214,46 @@ restart `npm run electron:dev`.
 
 ---
 
+## Migrating existing Offline-mode data (optional)
+
+If you've been using the app in Offline Demo mode and want to bring all that
+data into Online mode (so your existing companies, employees, shifts,
+schedules, and audit history appear in Firestore on first sign-in), run:
+
+```
+npm run migrate-to-firestore -- --dry-run
+```
+
+The dry-run prints what it would upload without writing anything. When the
+preview looks correct, run it for real:
+
+```
+npm run migrate-to-firestore
+```
+
+The script reads from your machine's local data folder (`%APPDATA%\Roaming\
+IraqiLaborScheduler\data\` on Windows, `~/.config/IraqiLaborScheduler/data`
+on macOS/Linux) by default. Override with `--source <path>` if your data
+lives elsewhere.
+
+What it migrates:
+- Companies registry → `/companies/{id}`
+- Employees, shifts, stations, station groups → per-company subcollections
+- Holidays — auto-consolidates split Eid al-Fitr / Eid al-Adha entries
+  from older saves into single records with `durationDays`
+- Config → `/companies/{id}/config/current`
+- Schedules → `/companies/{id}/schedules/{YYYY-MM}` (one doc per month)
+- Audit log → `/audit/{autoId}` (most recent 500 entries)
+
+The script is idempotent — running it twice produces the same Firestore
+state. It does NOT delete anything: companies you've added directly in
+Online mode survive the migration.
+
+Run once per super-admin's local data; users who only ever used Online mode
+don't need this step.
+
+---
+
 ## Adding more users later
 
 Until the in-app **Super Admin** tab ships in Phase 3, add admins and
