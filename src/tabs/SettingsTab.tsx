@@ -1,8 +1,9 @@
 import React from 'react';
-import { Download, Upload, LogOut, Repeat } from 'lucide-react';
+import { Download, Upload, LogOut, Repeat, KeyRound } from 'lucide-react';
 import { Config } from '../types';
 import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
+import { clearStoredConfig, getStoredConfig } from '../lib/firebaseConfigStorage';
 
 interface SettingsTabProps {
   config: Config;
@@ -146,6 +147,26 @@ export function SettingsTab({
               >
                 <Repeat className="w-3 h-3" />
                 Switch mode (reload)
+              </button>
+            )}
+            {/* Show "Relink Firebase config" only when a runtime-pasted config
+                exists. If the config came from .env.local at build time,
+                clearing localStorage wouldn't change anything — so hide the
+                button and avoid the confusion. */}
+            {isAuthenticated && getStoredConfig() && (
+              <button
+                onClick={() => {
+                  clearStoredConfig();
+                  if (onSignOut) {
+                    void Promise.resolve(onSignOut()).finally(() => location.reload());
+                  } else {
+                    location.reload();
+                  }
+                }}
+                className="apple-press px-6 py-2 bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 dark:hover:bg-slate-800 font-mono flex items-center gap-2"
+              >
+                <KeyRound className="w-3 h-3" />
+                Relink Firebase config
               </button>
             )}
           </div>

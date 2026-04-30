@@ -15,8 +15,10 @@ import React, { useState } from 'react';
 import App from '../App';
 import { ModePicker } from './ModePicker';
 import { LoginScreen } from './LoginScreen';
+import { OnlineSetup } from './OnlineSetup';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { getMode, AppMode } from '../lib/mode';
+import { isFirebaseConfigured } from '../lib/firebase';
 
 function OnlineGate() {
   const { user, loading } = useAuth();
@@ -33,6 +35,12 @@ function OnlineGate() {
 
 export function AppShell() {
   const [mode, setModeState] = useState<AppMode | null>(() => getMode());
+  // `configured` is read on every render, not pinned in state. The user
+  // pasting a config from OnlineSetup mutates localStorage; we re-render
+  // by bumping `configBump` and the `isFirebaseConfigured()` check picks
+  // up the new value naturally.
+  const [configBump, setConfigBump] = useState(0);
+  const configured = isFirebaseConfigured();
 
   if (!mode) {
     return <ModePicker onPick={setModeState} />;
@@ -42,8 +50,18 @@ export function AppShell() {
     return <App />;
   }
 
+  // Online mode but no Firebase config in env or localStorage yet.
+  // Two paths: first-time setup (links to FIREBASE_SETUP.md, then paste)
+  // or returning/joining (paste an existing config directly). Both end at
+  // the same paste form.
+  if (!configured) {
+    return <OnlineSetup onConfigured={() => setConfigBump(b => b + 1)} />;
+  }
+
+  // Bump key forces AuthProvider to re-init when a fresh config lands so
+  // the SDK reads the new credentials.
   return (
-    <AuthProvider>
+    <AuthProvider key={configBump}>
       <OnlineGate />
     </AuthProvider>
   );

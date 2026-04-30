@@ -100,6 +100,21 @@ new accounts.
 
 ## Step 7 — Configure your local app (~1 min)
 
+You have **two options**, pick whichever you prefer:
+
+### Option A — Paste in-app (recommended for second-machine / team users)
+
+Skip this step entirely for now. When you launch the app, click
+**Connect Online** → **I already have one** → paste your `firebaseConfig`
+in the form. The values are saved on this device's local storage and
+persist across restarts.
+
+This is also how your **other team members** join your team's setup, and
+how **you** connect from a second computer without redoing setup. Just
+share your `firebaseConfig` (e.g. via Signal) and they paste it.
+
+### Option B — `.env.local` file
+
 In the repo root, copy the env template:
 
 ```
@@ -124,7 +139,8 @@ VITE_FIREBASE_APP_ID=1:123456789012:web:abcdef
 ```
 
 Save the file. `.env.local` is gitignored — these values stay on your
-machine.
+machine. (Build-time env vars take precedence over the in-app paste, so
+this is the right choice if you want config baked into the build.)
 
 ---
 

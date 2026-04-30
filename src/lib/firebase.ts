@@ -10,6 +10,7 @@
 
 import type { FirebaseApp } from 'firebase/app';
 import type { Auth } from 'firebase/auth';
+import { getStoredConfig } from './firebaseConfigStorage';
 
 interface FirebaseConfig {
   apiKey: string;
@@ -24,22 +25,26 @@ let cachedApp: FirebaseApp | null = null;
 let cachedAuth: Auth | null = null;
 
 function readConfig(): FirebaseConfig | null {
+  // Build-time env vars (.env.local) take precedence so existing setups keep
+  // working unchanged. localStorage is the runtime fallback used when a
+  // super-admin connects from another device or a user pastes the team's
+  // config in-app — see OnlineSetup.tsx.
   const env = import.meta.env;
   const apiKey = env.VITE_FIREBASE_API_KEY;
   const authDomain = env.VITE_FIREBASE_AUTH_DOMAIN;
   const projectId = env.VITE_FIREBASE_PROJECT_ID;
-  const storageBucket = env.VITE_FIREBASE_STORAGE_BUCKET;
-  const messagingSenderId = env.VITE_FIREBASE_MESSAGING_SENDER_ID;
   const appId = env.VITE_FIREBASE_APP_ID;
-  if (!apiKey || !authDomain || !projectId || !appId) return null;
-  return {
-    apiKey,
-    authDomain,
-    projectId,
-    storageBucket: storageBucket ?? '',
-    messagingSenderId: messagingSenderId ?? '',
-    appId,
-  };
+  if (apiKey && authDomain && projectId && appId) {
+    return {
+      apiKey,
+      authDomain,
+      projectId,
+      storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET ?? '',
+      messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '',
+      appId,
+    };
+  }
+  return getStoredConfig();
 }
 
 export function isFirebaseConfigured(): boolean {
