@@ -20,7 +20,7 @@ import { AuthProvider, useAuth } from '../lib/auth';
 import { getMode, AppMode } from '../lib/mode';
 import { isFirebaseConfigured } from '../lib/firebase';
 
-function OnlineGate() {
+function OnlineGate({ onSwitchDatabase }: { onSwitchDatabase: () => void }) {
   const { user, loading } = useAuth();
   if (loading) {
     return (
@@ -29,7 +29,7 @@ function OnlineGate() {
       </div>
     );
   }
-  if (!user) return <LoginScreen />;
+  if (!user) return <LoginScreen onSwitchDatabase={onSwitchDatabase} />;
   return <App />;
 }
 
@@ -40,6 +40,12 @@ export function AppShell() {
   // by bumping `configBump` and the `isFirebaseConfigured()` check picks
   // up the new value naturally.
   const [configBump, setConfigBump] = useState(0);
+  // forceSetup: when true, route to OnlineSetup even though a config is
+  // saved. Triggered by the "Switch / add database" button on LoginScreen
+  // and by the "Add another database" flow in Settings — both use cases
+  // where the user is signed out (or just signed out) and wants to pick
+  // a different project.
+  const [forceSetup, setForceSetup] = useState(false);
   const configured = isFirebaseConfigured();
 
   if (!mode) {
@@ -50,19 +56,28 @@ export function AppShell() {
     return <App />;
   }
 
-  // Online mode but no Firebase config in env or localStorage yet.
-  // Two paths: first-time setup (links to FIREBASE_SETUP.md, then paste)
-  // or returning/joining (paste an existing config directly). Both end at
-  // the same paste form.
-  if (!configured) {
-    return <OnlineSetup onConfigured={() => setConfigBump(b => b + 1)} />;
+  if (!configured || forceSetup) {
+    return (
+      <OnlineSetup
+        onConfigured={() => {
+          setForceSetup(false);
+          setConfigBump((b) => b + 1);
+          // A different active config means the cached Firebase singletons
+          // (auth + app + Firestore) are now pointing at the WRONG project.
+          // The cleanest reset is a full page reload — same pattern as
+          // "switch mode" / "relink config" elsewhere in the app.
+          location.reload();
+        }}
+        onCancel={configured ? () => setForceSetup(false) : undefined}
+      />
+    );
   }
 
   // Bump key forces AuthProvider to re-init when a fresh config lands so
   // the SDK reads the new credentials.
   return (
     <AuthProvider key={configBump}>
-      <OnlineGate />
+      <OnlineGate onSwitchDatabase={() => setForceSetup(true)} />
     </AuthProvider>
   );
 }

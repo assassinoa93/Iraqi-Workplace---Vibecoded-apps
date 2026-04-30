@@ -1,0 +1,116 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Per-tab permission model.
+ *
+ * Three levels of access per tab — kept deliberately coarse so the
+ * super-admin's per-user permissions UI stays manageable:
+ *
+ *   'none'  → tab is invisible in the sidebar; data routes return 403
+ *   'read'  → tab visible, all add/edit/delete actions are hidden or
+ *             disabled
+ *   'full'  → tab visible, full read/write/delete authority
+ *
+ * Storage shape (in /users/{uid} Firestore doc):
+ *
+ *   tabPerms: {
+ *     schedule: 'full',
+ *     roster:   'read',
+ *     // missing key → use role default (TAB_DEFAULTS_BY_ROLE)
+ *   } | null   // null → use role default for every tab
+ *
+ * Why coarse? Most workflows want a binary "can edit / can't edit" plus
+ * a "can see at all" gate. The super-admin can fine-tune per user; the
+ * surface stays one dropdown per tab instead of a 3×N checkbox grid.
+ *
+ * Why on the user doc, not in custom claims?
+ * Custom claims are capped at ~1KB and drive Firestore Security Rules.
+ * Per-tab perms are a UI-layer affordance — Rules already enforce the
+ * server-side role/company gates. Putting tabPerms in /users/{uid}
+ * keeps claims small and lets the super-admin update perms without
+ * forcing a token refresh.
+ */
+
+import type { Role } from './adminApi';
+
+export type TabAccess = 'none' | 'read' | 'full';
+export type TabPerms = Record<string, TabAccess>;
+
+/**
+ * Role-default tab access. Used when a user doesn't have an explicit
+ * `tabPerms` override. Mirrors the legacy TAB_PERMISSIONS map but
+ * upgraded to the read/full distinction (admin's Variables read-only
+ * already encoded here, no longer special-cased in App.tsx).
+ */
+export const TAB_DEFAULTS_BY_ROLE: Record<Role, Record<string, TabAccess>> = {
+  super_admin: {
+    dashboard: 'full', schedule: 'full', roster: 'full', payroll: 'full',
+    coverageOT: 'full', workforce: 'full', reports: 'full',
+    layout: 'full', shifts: 'full', holidays: 'full', variables: 'full',
+    audit: 'full', settings: 'full',
+    superAdmin: 'full', userManagement: 'full',
+  },
+  admin: {
+    dashboard: 'full', schedule: 'full', roster: 'full', payroll: 'full',
+    coverageOT: 'full', workforce: 'full', reports: 'full',
+    layout: 'full', shifts: 'full', holidays: 'full',
+    variables: 'read',           // admins can see Iraqi Labor Law config but not edit
+    audit: 'full', settings: 'full',
+    // No Super Admin / User Management for plain admins.
+  },
+  supervisor: {
+    dashboard: 'full', schedule: 'full', roster: 'full',
+    coverageOT: 'full',
+    layout: 'full', shifts: 'full', holidays: 'full',
+    settings: 'full',
+    // Supervisors don't see payroll/workforce/reports/variables/audit
+    // by default — super-admin can grant per-user.
+  },
+};
+
+export function tabAccess(
+  tab: string,
+  role: Role | null,
+  tabPerms: TabPerms | null,
+): TabAccess {
+  // Offline / no-auth: full access — preserves the v3.0.0 single-user
+  // experience for Offline Demo mode.
+  if (role === null) return 'full';
+
+  // Per-user override always wins when present.
+  if (tabPerms && Object.prototype.hasOwnProperty.call(tabPerms, tab)) {
+    const v = tabPerms[tab];
+    if (v === 'none' || v === 'read' || v === 'full') return v;
+  }
+
+  return TAB_DEFAULTS_BY_ROLE[role]?.[tab] ?? 'none';
+}
+
+export function canRead(tab: string, role: Role | null, tabPerms: TabPerms | null): boolean {
+  return tabAccess(tab, role, tabPerms) !== 'none';
+}
+export function canWrite(tab: string, role: Role | null, tabPerms: TabPerms | null): boolean {
+  return tabAccess(tab, role, tabPerms) === 'full';
+}
+
+/**
+ * Tabs that the super-admin's permissions UI lets them grant per-user.
+ * superAdmin / userManagement are intentionally excluded — they're
+ * super-admin-only and not delegable.
+ */
+export const GRANTABLE_TABS: Array<{ key: string; label: string; default: TabAccess }> = [
+  { key: 'dashboard',  label: 'Dashboard',          default: 'full' },
+  { key: 'schedule',   label: 'Master Schedule',    default: 'full' },
+  { key: 'roster',     label: 'Roster',             default: 'full' },
+  { key: 'payroll',    label: 'Payroll',            default: 'none' },
+  { key: 'coverageOT', label: 'Coverage / OT',      default: 'full' },
+  { key: 'workforce',  label: 'Workforce Planning', default: 'none' },
+  { key: 'reports',    label: 'Reports',            default: 'none' },
+  { key: 'layout',     label: 'Layout',             default: 'full' },
+  { key: 'shifts',     label: 'Shifts',             default: 'full' },
+  { key: 'holidays',   label: 'Holidays',           default: 'full' },
+  { key: 'variables',  label: 'Legal Variables',    default: 'read' },
+  { key: 'audit',      label: 'Audit Log',          default: 'none' },
+  { key: 'settings',   label: 'System Settings',    default: 'full' },
+];

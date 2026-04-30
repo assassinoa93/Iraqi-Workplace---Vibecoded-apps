@@ -1,8 +1,8 @@
 {
   "name": "iraqi-labor-scheduler",
   "private": true,
-  "version": "3.0.0",
-  "description": "Local-first workforce scheduler tailored for Iraqi Labor Law (Art. 67-74, 88).",
+  "version": "4.0.0",
+  "description": "Workforce scheduler tailored for Iraqi Labor Law (Art. 67-74, 88). Dual-mode: offline-first single-user OR Firebase-backed multi-user with role-based access and full in-app management.",
   "author": {
     "name": "Iraqi Labor Scheduler Project",
     "email": "assassinmachete@gmail.com",
@@ -41,6 +41,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "firebase": "^11.0.0",
+    "firebase-admin": "^13.8.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "lucide-react": "^0.378.0",
@@ -62,7 +63,6 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.20.2",
-    "firebase-admin": "^13.8.0",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5",
     "tsx": "^4.10.2",

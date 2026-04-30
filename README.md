@@ -65,19 +65,28 @@ A professional, local-first workforce management and automated scheduling system
 The easiest way to use the app is to download the pre-built installer:
 
 1. Navigate to the **[Releases](https://github.com/assassinoa93/iraqi-labor-scheduler/releases)** page on GitHub.
-2. Under the **latest release (v3.0.0)**, scroll down to the **Assets** section.
-3. Download `Iraqi-Labor-Scheduler-Setup-3.0.0.exe` **and** `SHA256SUMS.txt`.
+2. Under the **latest release (v4.0.0)**, scroll down to the **Assets** section.
+3. Download `Iraqi-Labor-Scheduler-Setup-4.0.0.exe` **and** `SHA256SUMS.txt`.
 4. (Optional but recommended) Verify the installer hash — open PowerShell in the folder where you saved both files and run:
    ```powershell
-   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-3.0.0.exe
+   Get-FileHash -Algorithm SHA256 .\Iraqi-Labor-Scheduler-Setup-4.0.0.exe
    ```
    Compare the printed hash against the line for that filename in `SHA256SUMS.txt`. They must match exactly.
 5. Double-click the `.exe` to install. Open the app from your **Desktop Shortcut**.
 
+### 🌐 Two modes — pick at first launch
+
+When the app first opens you'll see a **mode picker**:
+
+- **Offline Demo** — fully local, single-user, zero network. Express server + JSON files in `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`. This is the v3.0.0 experience preserved verbatim. No setup required.
+- **Connect Online** — multi-user, cloud-backed, role-aware. Runs on Firebase (free Spark plan). One person (the **super-admin**) creates a Firebase project once via an in-app step-by-step wizard; everyone else joins by pasting a connection code the super-admin shares with them.
+
+Online mode is opt-in and additive. You can switch between modes at any time from **Settings → Switch mode**. See [`FIREBASE_SETUP.md`](FIREBASE_SETUP.md) for the full first-time-setup walkthrough (~10 minutes of clicks for the super-admin).
+
 ### 🔄 Updating from an earlier version
 Just download the newer installer and run it. **Do not uninstall the previous version first.** The installer:
 
-1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v3.0.0…"*).
+1. Detects the existing installation via the registry and pops a one-line notice (*"An existing installation was detected (v1.x). This wizard will update Iraqi Labor Scheduler to v4.0.0…"*).
 2. Replaces the program files in the existing install directory.
 3. Leaves your data folder untouched — it lives at `%APPDATA%\Roaming\iraqi-labor-scheduler\data\`, outside the install directory.
 4. On first launch the app snapshots your data to `data-backup-<old-version>-<timestamp>/` next to the live folder. The 5 most recent snapshots are kept; older ones are pruned automatically.
@@ -235,6 +244,25 @@ This application is designed to support the **Iraqi Labor Law No. 37 of 2015**:
 - **Article 88** (transport workers): Stricter caps for drivers — 9h daily / 56h weekly, 4.5h max continuous driving with mandatory 30-min break, 11h daily rest.
 
 All thresholds are configurable in the Legal Variables tab to match sector-specific Ministerial decrees, collective bargaining agreements, or Ministry of Transport regulations.
+
+## 📦 What's new in v4.0.0
+
+**Major version. Online mode + AIO management.** v3 hardened the offline product; v4 adds an opt-in cloud mode for teams. The single-user **Offline Demo** experience is preserved verbatim — no migration required, no behavioural change. **Online mode** is multi-user, role-aware, and managed entirely from inside the app — no Firebase Console for routine work after first-time setup.
+
+| Area | Change |
+|------|--------|
+| **Dual-mode launch** | First launch shows a mode picker: **Offline Demo** (current local-first behaviour, Express + JSON) or **Connect Online** (Firebase Auth + Firestore). The choice persists. Switching prompts a reload from Settings. Every domain — companies, employees, shifts, stations, holidays, config, schedules, audit log — has dual-mode parity. |
+| **In-app onboarding wizard** | First-time super-admin runs a step-by-step wizard. Firebase Console is needed only for the genuinely Console-only steps (project creation, enabling Firestore + Auth) — everything else (`firebaseConfig` paste, service-account JSON link, super-admin Auth account creation, `super_admin` claim grant) happens in-app via the Admin SDK bridge. Returning super-admin from a different PC gets a short reconnect path with explicit instructions for retrieving the `firebaseConfig` from another machine's "Generate connection code" button or from Firebase Console. |
+| **One-paste user join** | Super-admin generates a connection code from **Settings → Generate connection code** (`ils-connect:<base64>`); team members paste it on the **Join with a connection code** screen and sign in with their email + password. No 6-field manual entry. |
+| **Multi-database support** | A super-admin running several Firebase projects (one per company / branch) can keep them all connected on a single install. Saved databases appear in the OnlineSetup picker and in **Settings → Connected databases** with switch / rename / remove. Service-account JSONs are scoped per project (`<userData>/firebase-admin/<projectId>/serviceAccount.json`) so adding a second project never overwrites the first. The active project is shown as a chip in the top toolbar at all times. |
+| **Three roles + per-tab permissions** | `super_admin` (everything) / `admin` (all companies, Variables read-only, no user mgmt) / `supervisor` (operational tabs only, scoped via `companies` claim). On top of role defaults, every tab is independently set per-user to **Hidden** / **Read-only** / **Full** from the new **User Management** tab. Hidden tabs don't appear in the sidebar; read-only tabs disable add/edit/delete actions. Permissions are stored on `/users/{uid}` and live-subscribed — super-admin edits propagate to the affected user within ~1 second without a re-login. |
+| **User Management + Super Admin tabs** | Dedicated **User Management** tab (super_admin only): create users (Admin SDK; auto-generates a temp password to share securely), disable / enable, reset password, delete (refuses self-delete), edit role + scoped companies + per-tab perms. **Super Admin** tab holds Connection (link service-account JSON), Companies (add / rename / delete), and Database (audit-log retention purges using the Admin SDK to bypass the immutability rule). |
+| **Audit log enrichment** | Audit entries now record actor email + actor uid, and modify summaries name the changed fields (*"Modified employee: Ahmed (name, salary)"*). Schedule edits list specific cells when 1–5 changed, or *"Schedule edited for 2026-04 (47 cells)"* for bulk operations. Audit Log tab dual-reads: Firestore in Online, Express in Offline. |
+| **Factory reset = true clean slate** | Wipes every local trace: signs out Firebase Auth, terminates Firestore, removes all service-account JSONs, clears `localStorage` + `sessionStorage`, deletes Firebase IndexedDB databases, and reloads. A `setItem` shim runs during the wipe so straggling React effects can't repopulate state between clear and reload. Server-side Firestore data is intentionally not touched. |
+| **Spark-only architecture** | No Cloud Functions, no Blaze, no credit card. Firestore + Auth handle data and identity; the Firebase Admin SDK loads in the Electron main process for super-admin operations that exceed client SDK reach. Each project gets its own cached Admin SDK app instance keyed by `projectId`. |
+| **Migration script** | `npm run migrate-to-firestore` walks an existing offline-mode `data/` folder and bulk-uploads all 9 domains to the matching Firestore structure. Idempotent. `--dry-run` previews without writing. Auto-consolidates split-Eid holiday entries from older saves into single records with `durationDays`. |
+
+**Compatibility:** all 108 unit tests pass. Pre-4.0 backups load unchanged via the existing migration normalizers. Offline mode is byte-identical to v3.0 in behaviour.
 
 ## 📦 What's new in v3.0.0
 

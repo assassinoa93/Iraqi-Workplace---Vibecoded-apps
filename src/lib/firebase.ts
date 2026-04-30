@@ -51,6 +51,16 @@ export function isFirebaseConfigured(): boolean {
   return readConfig() !== null;
 }
 
+/**
+ * Returns the currently-active Firebase config (env vars OR localStorage),
+ * or null if none is set. Used by Settings → "Generate Connection Code"
+ * so the super-admin can share their setup regardless of which path
+ * (.env.local or in-app paste) wired it up.
+ */
+export function getActiveConfig(): FirebaseConfig | null {
+  return readConfig();
+}
+
 export async function getFirebaseApp(): Promise<FirebaseApp> {
   if (cachedApp) return cachedApp;
   const config = readConfig();

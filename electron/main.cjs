@@ -4,6 +4,7 @@ const { app, BrowserWindow, Menu, Tray, nativeImage, shell } = require('electron
 const path = require('path');
 const http  = require('http');
 const fs    = require('fs');
+const { registerAdminIpc } = require('./admin-bridge.cjs');
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 const isDev = !app.isPackaged;
@@ -215,6 +216,10 @@ function createWindow() {
       nodeIntegration:  false,
       contextIsolation: true,
       sandbox:          true,
+      // Phase 3.2 — exposes window.adminApi for the Super Admin tab IPC
+      // surface. Sandboxed; the renderer never touches Node APIs or the
+      // service-account JSON contents directly.
+      preload:          path.join(__dirname, 'preload.cjs'),
     },
     show: false,   // reveal once ready-to-show
   });
@@ -274,6 +279,13 @@ if (!gotTheLock) {
       mainWindow.focus();
     }
   });
+
+  // ─── Admin SDK IPC (Phase 3.2) ───────────────────────────────────────────────
+  // Registered up-front so the channels exist before the renderer can call
+  // them. The Admin SDK itself is loaded lazily on first use, so installs
+  // without a service-account JSON pay no cost (and emit no errors) until
+  // the super-admin actually opens the Super Admin tab.
+  registerAdminIpc();
 
   // ─── App lifecycle ────────────────────────────────────────────────────────────
   app.whenReady().then(createWindow);

@@ -2,6 +2,55 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v4.0.0 — 2026-04-30
+
+**Major version. Online mode + AIO management.** v3 hardened the offline product; v4 adds an opt-in cloud mode for teams. The single-user Offline Demo experience is preserved verbatim (no migration, no behavioural change). Online mode is multi-user, role-aware, and managed entirely from inside the app — no Firebase Console for routine work after first-time setup.
+
+**Dual-mode architecture**
+- New launch flow: **Offline Demo** (current local-first behavior) or **Connect Online**. The choice persists; switching prompts a reload from Settings. Express + JSON data layer stays in place for Offline mode as a permanent fallback.
+- Online mode runs entirely on Firebase Spark (free) plan — no Cloud Functions, no Blaze, no credit card. Firestore + Auth handle data and identity; the Firebase Admin SDK loads in the Electron main process for super-admin operations that exceed client SDK reach.
+- Every domain — companies, employees, shifts, stations, station groups, holidays, config, schedules, audit log — has dual-mode parity. The same UI reads from Firestore in Online and the local Express server in Offline; mutators dual-dispatch in `App.tsx`.
+
+**AIO onboarding**
+- First-time super-admin runs an in-app step-by-step wizard. Firebase Console is needed only for the Console-only steps (project creation, enabling Firestore + Auth) — `firebaseConfig` paste, service-account JSON link, super-admin Auth account creation and `super_admin` claim grant all happen inside the wizard via the Admin SDK bridge.
+- Returning super-admin (different PC) gets a short reconnect path with explicit instructions for getting the `firebaseConfig` either from another machine's "Generate connection code" button or from Firebase Console.
+- Admin / Supervisor onboarding is one paste — the super-admin generates a `ils-connect:<base64>` code from Settings; the team member pastes it on the **Join with a connection code** screen and signs in.
+
+**Multi-database support**
+- A super-admin managing multiple companies / branches can keep several Firebase projects connected on a single install. Saved databases appear in the OnlineSetup picker and in **Settings → Connected databases** with switch / rename / remove. The active project is shown as a chip in the top toolbar at all times.
+- Service-account JSONs are scoped per project (`<userData>/firebase-admin/<projectId>/serviceAccount.json`) so adding a second project never overwrites the first's credentials. Each project gets its own cached Admin SDK app instance.
+
+**Per-tab permissions + dedicated User Management tab**
+- New **User Management** tab (super_admin only) splits user CRUD out of Super Admin. Create, disable / enable, reset password (via Admin SDK; auto-generates a temp password), delete (refuses self-delete), edit role + scoped companies.
+- Per-user **per-tab access**: every tab is independently set to `Hidden`, `Read-only`, or `Full`. Hidden tabs don't appear in the sidebar at all. Read-only tabs render with all add / edit / delete actions disabled (Variables tab fully wired; pattern is reusable). Bulk presets ("All Read-only", "All Hidden") for fast configuration.
+- Permissions are stored on the `/users/{uid}` Firestore doc and live-subscribed in `AuthProvider` — super-admin edits propagate to the affected user within ~1 second without a re-login.
+
+**Super Admin tab — Connection / Companies / Database**
+- Connection panel: link / re-link the service-account JSON for the active project; status badge + project ID display.
+- Companies panel: add / rename / delete companies (delegates to the same flow `App.tsx` uses, so confirmations and cascade behaviour match).
+- Database panel: audit-log retention controls (purge entries older than 90 / 180 / 365 days) using the Admin SDK to bypass the immutability rule that blocks ordinary clients from deleting `/audit` entries.
+
+**Audit log enrichment**
+- Audit entries now record actor email + actor uid alongside the change, and modify summaries name the changed fields (e.g. *"Modified employee: Ahmed (name, salary)"*). Schedule edits list specific cells when 1–5 cells changed, or *"Schedule edited for 2026-04 (47 cells)"* for bulk operations.
+- Audit Log tab dual-reads: Firestore in Online mode, Express in Offline mode.
+
+**Factory reset = true clean slate**
+- Factory reset now wipes every local trace: signs out Firebase Auth, terminates Firestore (so its IndexedDB cache can actually be deleted instead of going into "blocked" state), removes all service-account JSONs, clears `localStorage` + `sessionStorage`, deletes Firebase IndexedDB databases, and reloads.
+- A `localStorage.setItem` shim runs during the wipe so straggling React effects (e.g. the active-company persistence effect) can't repopulate state between clear and reload. Server-side Firestore data is intentionally not touched — that's a separate operation from the Database panel.
+
+**Connection code — single-string database sharing**
+- Settings → Generate connection code emits an `ils-connect:<base64>` string that encodes the full `firebaseConfig`. Recipients paste it on the OnlineSetup join screen and skip the 6-field manual form. Firebase config values are public client identifiers — security stays in Firestore Rules + Auth, never in obscurity.
+
+**Firestore Security Rules**
+- Three roles enforced server-side: `super_admin` (everything), `admin` (all companies, Variables read-only, no user mgmt), `supervisor` (operational tabs only, scoped via `companies` claim).
+- Per-company subcollections gate read/write on the user's claim. Supervisors filtered to their `companies` list. Audit entries are immutable to clients — only super-admin via the Admin SDK can purge.
+
+**Migration script**
+- `npm run migrate-to-firestore` walks an existing offline-mode `data/` folder and bulk-uploads all 9 domains to the matching Firestore structure. Idempotent — running it twice produces the same state. `--dry-run` previews without writing. Auto-consolidates split-Eid holiday entries from older saves into single records with `durationDays`.
+
+**Compatibility**
+- All 108 unit tests pass. Pre-4.0 backups load unchanged via the existing migration normalizers. Offline mode is byte-identical to v3.0 in behaviour.
+
 ## v3.0.0 — 2026-04-29
 
 **Major version. Maturity milestone.** Three years after v1's MVP and a year of design-system maturation since v2.0, the visual language is now codified in an external claude.ai/design package and applied end-to-end across every tab. v3.0.0 isn't breaking — pre-3.0 backups load via the same migration normalisers — but the design system, offline-ready font bundle, comprehensive dark mode, and FT/PT-split workforce planning are all post-2.0 additions and form the new baseline.

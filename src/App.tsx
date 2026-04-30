@@ -20,6 +20,7 @@ import {
   FlaskConical,
   TrendingUp,
   Building2,
+  ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -69,8 +70,10 @@ import {
   normalizeConfig, normalizeAllSchedules, normalizeCompanies,
 } from './lib/migration';
 import { useI18n } from './lib/i18n';
-import { useAuth, tabAllowed } from './lib/auth';
+import { useAuth, tabAllowed, tabWritable } from './lib/auth';
 import { clearMode } from './lib/mode';
+import { getActiveStoredEntry } from './lib/firebaseConfigStorage';
+import { factoryResetClean } from './lib/factoryReset';
 import {
   subscribeCompanies as fsSubscribeCompanies,
   addCompany as fsAddCompany,
@@ -114,6 +117,8 @@ const ReportsTab = lazy(() => import('./tabs/ReportsTab').then(m => ({ default: 
 const SettingsTab = lazy(() => import('./tabs/SettingsTab').then(m => ({ default: m.SettingsTab })));
 const VariablesTab = lazy(() => import('./components/VariablesTab').then(m => ({ default: m.VariablesTab })));
 const AuditLogTab = lazy(() => import('./components/AuditLogTab').then(m => ({ default: m.AuditLogTab })));
+const SuperAdminTab = lazy(() => import('./tabs/SuperAdminTab').then(m => ({ default: m.SuperAdminTab })));
+const UserManagementTab = lazy(() => import('./tabs/UserManagementTab').then(m => ({ default: m.UserManagementTab })));
 
 // Empty placeholder used when a company has no per-domain data yet.
 const emptyCompanyData = (): CompanyData => ({
@@ -143,7 +148,7 @@ export default function App() {
   // useAuth() returns the default (role=null, isAuthenticated=false) and
   // every tab visibility / company filter check becomes a no-op — i.e. the
   // single-user product behaves exactly as before.
-  const { user, role, allowedCompanies, signOut, isAuthenticated } = useAuth();
+  const { user, role, allowedCompanies, tabPerms, signOut, isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dataLoaded, setDataLoaded] = useState(false);
 
@@ -151,10 +156,10 @@ export default function App() {
   // activeTab is set to 'workforce' from a previous super-admin session),
   // bounce to the Dashboard which everyone can see.
   useEffect(() => {
-    if (!tabAllowed(activeTab, role)) {
+    if (!tabAllowed(activeTab, role, tabPerms)) {
       setActiveTab('dashboard');
     }
-  }, [activeTab, role]);
+  }, [activeTab, role, tabPerms]);
 
   // Companies registry. The first load seeds INITIAL_COMPANIES if the server
   // returned nothing; per-domain data is also keyed by companyId.
@@ -1087,24 +1092,12 @@ export default function App() {
         icon: Download
       },
       onConfirm: () => {
-        fetch('/api/reset', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ confirm: 'DELETE_ALL_DATA' })
-        })
-          .then(r => r.ok ? r.json() : Promise.reject(r))
-          .then(() => {
-            localStorage.clear();
-            // The renderer will fall back to INITIAL data on the next load and
-            // immediately auto-save it. Mark that one save so the server
-            // skips the diff — otherwise the audit log fills with dozens of
-            // "added employee" entries that drown out the single "Factory
-            // reset" entry the server just wrote.
-            localStorage.setItem('iraqi-scheduler-skip-next-audit', '1');
-            showInfo(t('confirm.factoryReset.title'), t('info.factoryReset.body'));
-            setTimeout(() => window.location.reload(), 1500);
-          })
-          .catch(() => showInfo(t('info.error.title'), t('info.factoryReset.failed')));
+        // factoryResetClean reloads the page itself once the wipe
+        // completes — don't add .then/setTimeout/showInfo here. Any
+        // post-clear React render can re-populate localStorage from
+        // useEffect deps (e.g. the activeCompanyId persistence effect),
+        // which is why the function navigates away immediately.
+        void factoryResetClean(isAuthenticated);
       }
     });
   };
@@ -2393,6 +2386,18 @@ export default function App() {
               {t('sidebar.brand.line1')} {t('sidebar.brand.line2')}
             </h1>
             <p className="text-slate-500 text-[10px] font-mono mt-0.5">v{APP_VERSION}</p>
+            {/* Active Firebase project badge — only in Online mode and only
+                when the active config came from in-app paste (not env vars).
+                Helps super-admins running multiple projects see at a glance
+                which one this app is talking to. */}
+            {isAuthenticated && (() => {
+              const active = getActiveStoredEntry();
+              return active ? (
+                <p className="text-blue-300/80 text-[9px] font-bold uppercase tracking-widest mt-1 truncate" title={active.config.projectId}>
+                  · {active.label}
+                </p>
+              ) : null;
+            })()}
           </div>
         </div>
 
@@ -2415,25 +2420,27 @@ export default function App() {
             Analytics (weekly) → Setup (occasional) → System (rare). */}
         <nav className="flex-1 py-4 overflow-y-auto sidebar-scrollbar">
           <SidebarGroup label={t('sidebar.group.operations')}>
-            {tabAllowed('dashboard', role) && <TabButton active={activeTab === 'dashboard'} label={t('tab.dashboard')} index="01" icon={BarChart3} onClick={() => setActiveTab('dashboard')} />}
-            {tabAllowed('schedule', role) && <TabButton active={activeTab === 'schedule'} label={t('tab.schedule')} index="02" icon={Calendar} onClick={() => setActiveTab('schedule')} />}
-            {tabAllowed('roster', role) && <TabButton active={activeTab === 'roster'} label={t('tab.roster')} index="03" icon={Users} onClick={() => setActiveTab('roster')} />}
-            {tabAllowed('payroll', role) && <TabButton active={activeTab === 'payroll'} label={t('tab.payroll')} index="04" icon={BarChart3} onClick={() => setActiveTab('payroll')} />}
+            {tabAllowed('dashboard', role, tabPerms) && <TabButton active={activeTab === 'dashboard'} label={t('tab.dashboard')} index="01" icon={BarChart3} onClick={() => setActiveTab('dashboard')} />}
+            {tabAllowed('schedule', role, tabPerms) && <TabButton active={activeTab === 'schedule'} label={t('tab.schedule')} index="02" icon={Calendar} onClick={() => setActiveTab('schedule')} />}
+            {tabAllowed('roster', role, tabPerms) && <TabButton active={activeTab === 'roster'} label={t('tab.roster')} index="03" icon={Users} onClick={() => setActiveTab('roster')} />}
+            {tabAllowed('payroll', role, tabPerms) && <TabButton active={activeTab === 'payroll'} label={t('tab.payroll')} index="04" icon={BarChart3} onClick={() => setActiveTab('payroll')} />}
           </SidebarGroup>
           <SidebarGroup label={t('sidebar.group.analytics')}>
-            {tabAllowed('coverageOT', role) && <TabButton active={activeTab === 'coverageOT'} label={t('tab.coverageOT')} index="05" icon={TrendingUp} onClick={() => setActiveTab('coverageOT')} />}
-            {tabAllowed('workforce', role) && <TabButton active={activeTab === 'workforce'} label={t('tab.workforce')} index="06" icon={Building2} onClick={() => setActiveTab('workforce')} />}
-            {tabAllowed('reports', role) && <TabButton active={activeTab === 'reports'} label={t('tab.reports')} index="07" icon={FileSpreadsheet} onClick={() => setActiveTab('reports')} />}
+            {tabAllowed('coverageOT', role, tabPerms) && <TabButton active={activeTab === 'coverageOT'} label={t('tab.coverageOT')} index="05" icon={TrendingUp} onClick={() => setActiveTab('coverageOT')} />}
+            {tabAllowed('workforce', role, tabPerms) && <TabButton active={activeTab === 'workforce'} label={t('tab.workforce')} index="06" icon={Building2} onClick={() => setActiveTab('workforce')} />}
+            {tabAllowed('reports', role, tabPerms) && <TabButton active={activeTab === 'reports'} label={t('tab.reports')} index="07" icon={FileSpreadsheet} onClick={() => setActiveTab('reports')} />}
           </SidebarGroup>
           <SidebarGroup label={t('sidebar.group.setup')}>
-            {tabAllowed('layout', role) && <TabButton active={activeTab === 'layout'} label={t('tab.layout')} index="08" icon={Layout} onClick={() => setActiveTab('layout')} />}
-            {tabAllowed('shifts', role) && <TabButton active={activeTab === 'shifts'} label={t('tab.shifts')} index="09" icon={Clock} onClick={() => setActiveTab('shifts')} />}
-            {tabAllowed('holidays', role) && <TabButton active={activeTab === 'holidays'} label={t('tab.holidays')} index="10" icon={Flag} onClick={() => setActiveTab('holidays')} />}
-            {tabAllowed('variables', role) && <TabButton active={activeTab === 'variables'} label={t('tab.variables')} index="11" icon={Scale} onClick={() => setActiveTab('variables')} />}
+            {tabAllowed('layout', role, tabPerms) && <TabButton active={activeTab === 'layout'} label={t('tab.layout')} index="08" icon={Layout} onClick={() => setActiveTab('layout')} />}
+            {tabAllowed('shifts', role, tabPerms) && <TabButton active={activeTab === 'shifts'} label={t('tab.shifts')} index="09" icon={Clock} onClick={() => setActiveTab('shifts')} />}
+            {tabAllowed('holidays', role, tabPerms) && <TabButton active={activeTab === 'holidays'} label={t('tab.holidays')} index="10" icon={Flag} onClick={() => setActiveTab('holidays')} />}
+            {tabAllowed('variables', role, tabPerms) && <TabButton active={activeTab === 'variables'} label={t('tab.variables')} index="11" icon={Scale} onClick={() => setActiveTab('variables')} />}
           </SidebarGroup>
           <SidebarGroup label={t('sidebar.group.system')}>
-            {tabAllowed('audit', role) && <TabButton active={activeTab === 'audit'} label={t('tab.audit')} index="12" icon={Database} onClick={() => setActiveTab('audit')} />}
-            {tabAllowed('settings', role) && <TabButton active={activeTab === 'settings'} label={t('tab.settings')} index="13" icon={Settings} onClick={() => setActiveTab('settings')} />}
+            {tabAllowed('audit', role, tabPerms) && <TabButton active={activeTab === 'audit'} label={t('tab.audit')} index="12" icon={Database} onClick={() => setActiveTab('audit')} />}
+            {tabAllowed('settings', role, tabPerms) && <TabButton active={activeTab === 'settings'} label={t('tab.settings')} index="13" icon={Settings} onClick={() => setActiveTab('settings')} />}
+            {tabAllowed('userManagement', role, tabPerms) && <TabButton active={activeTab === 'userManagement'} label={t('tab.userManagement')} index="14" icon={Users} onClick={() => setActiveTab('userManagement')} />}
+            {tabAllowed('superAdmin', role, tabPerms) && <TabButton active={activeTab === 'superAdmin'} label={t('tab.superAdmin')} index="15" icon={ShieldCheck} onClick={() => setActiveTab('superAdmin')} />}
           </SidebarGroup>
         </nav>
 
@@ -2495,6 +2502,25 @@ export default function App() {
             </button>
           </div>
           <div className="flex items-center gap-3" aria-live="polite">
+            {/* Active Firebase project chip — Online mode only. Always
+                visible in the top header so a multi-project super-admin
+                can never be confused about which database they're working
+                against. Clicking it jumps to Settings → Connected
+                databases for switching. */}
+            {isAuthenticated && (() => {
+              const active = getActiveStoredEntry();
+              if (!active) return null;
+              return (
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className="apple-press inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-200 border border-blue-100 dark:border-blue-500/30 rounded-md text-[10px] font-bold uppercase tracking-widest font-mono hover:bg-blue-100 dark:hover:bg-blue-500/25 transition-colors max-w-[260px]"
+                  title={`Active database: ${active.label} (${active.config.projectId})`}
+                >
+                  <Database className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{active.label}</span>
+                </button>
+              );
+            })()}
             {(() => {
               const dotColor =
                 simMode ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)] animate-pulse' :
@@ -2759,7 +2785,11 @@ export default function App() {
             )}
 
             {activeTab === 'variables' && (
-              <VariablesTab config={config} setConfig={setConfig} readOnly={role === 'admin'} />
+              <VariablesTab
+                config={config}
+                setConfig={setConfig}
+                readOnly={!tabWritable('variables', role, tabPerms)}
+              />
             )}
 
             {activeTab === 'audit' && <AuditLogTab />}
@@ -2776,6 +2806,19 @@ export default function App() {
                 onSwitchMode={() => { clearMode(); location.reload(); }}
                 allowDestructive={role === null || role === 'super_admin'}
               />
+            )}
+
+            {activeTab === 'superAdmin' && (
+              <SuperAdminTab
+                companies={companies}
+                onAddCompany={addCompany}
+                onRenameCompany={renameCompany}
+                onDeleteCompany={deleteCompany}
+              />
+            )}
+
+            {activeTab === 'userManagement' && (
+              <UserManagementTab companies={companies} />
             )}
             </Suspense>
           </motion.div>

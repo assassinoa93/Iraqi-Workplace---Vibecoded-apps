@@ -12,6 +12,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { getFirebaseAuth } from './firebase';
+import type { TabPerms } from './tabAccess';
+import { tabAccess as computeTabAccess, canRead as computeCanRead, canWrite as computeCanWrite } from './tabAccess';
 
 export type Role = 'super_admin' | 'admin' | 'supervisor';
 
@@ -22,6 +24,9 @@ export interface AuthState {
   // null means "all companies" (super_admin, admin) or "no auth" (offline).
   // An empty array means "explicitly scoped to none" — should not happen.
   allowedCompanies: string[] | null;
+  // Per-tab access overrides loaded from /users/{uid}.tabPerms. null when
+  // none set — falls back to TAB_DEFAULTS_BY_ROLE in tabAccess().
+  tabPerms: TabPerms | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -34,6 +39,7 @@ const defaultState: AuthState = {
   user: null,
   role: null,
   allowedCompanies: null,
+  tabPerms: null,
   loading: false,
   signIn: async () => { throw new Error('AuthProvider not mounted'); },
   signOut: async () => { /* no-op in offline mode */ },
@@ -46,18 +52,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [allowedCompanies, setAllowedCompanies] = useState<string[] | null>(null);
+  const [tabPerms, setTabPerms] = useState<TabPerms | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let unsub: (() => void) | undefined;
+    let unsubAuth: (() => void) | undefined;
+    let unsubUserDoc: (() => void) | undefined;
     let cancelled = false;
     (async () => {
       try {
         const auth = await getFirebaseAuth();
         const { onAuthStateChanged } = await import('firebase/auth');
-        unsub = onAuthStateChanged(auth, async (u) => {
+        unsubAuth = onAuthStateChanged(auth, async (u) => {
           if (cancelled) return;
           setUser(u);
+          // Tear down the previous user-doc subscription whenever the
+          // signed-in user changes (sign-out, account switch).
+          unsubUserDoc?.();
+          unsubUserDoc = undefined;
+          setTabPerms(null);
+
           if (u) {
             try {
               const tokenResult = await u.getIdTokenResult();
@@ -66,14 +80,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 ? claims.role as Role
                 : null;
               setRole(r);
-              // super_admin and admin have access to all companies — represent
-              // that as null. Supervisor must have an explicit list.
               if (r === 'super_admin' || r === 'admin') {
                 setAllowedCompanies(null);
               } else if (r === 'supervisor' && Array.isArray(claims.companies)) {
                 setAllowedCompanies(claims.companies);
               } else {
                 setAllowedCompanies([]);
+              }
+
+              // Subscribe to /users/{uid} for the per-tab perms override.
+              // Live updates so a super-admin tweaking perms in one tab is
+              // reflected on the user's session within ~1s without a
+              // re-login.
+              try {
+                const { getDb } = await import('./firestoreClient');
+                const { doc, onSnapshot } = await import('firebase/firestore');
+                const db = await getDb();
+                unsubUserDoc = onSnapshot(
+                  doc(db, 'users', u.uid),
+                  (snap) => {
+                    if (cancelled) return;
+                    const data = snap.exists() ? snap.data() : null;
+                    const perms = data?.tabPerms;
+                    if (perms && typeof perms === 'object') {
+                      // Trust but normalize — drop any value that isn't a
+                      // valid TabAccess literal.
+                      const clean: TabPerms = {};
+                      for (const [k, v] of Object.entries(perms)) {
+                        if (v === 'none' || v === 'read' || v === 'full') clean[k] = v;
+                      }
+                      setTabPerms(Object.keys(clean).length ? clean : null);
+                    } else {
+                      setTabPerms(null);
+                    }
+                  },
+                  () => { /* permission-denied or transient — ignore, fall back to role default */ },
+                );
+              } catch {
+                // Firestore unavailable in this env — role defaults are fine.
               }
             } catch {
               setRole(null);
@@ -92,7 +136,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
     return () => {
       cancelled = true;
-      unsub?.();
+      unsubAuth?.();
+      unsubUserDoc?.();
     };
   }, []);
 
@@ -109,10 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const value = useMemo<AuthState>(() => ({
-    user, role, allowedCompanies, loading,
+    user, role, allowedCompanies, tabPerms, loading,
     signIn, signOut,
     isAuthenticated: true,
-  }), [user, role, allowedCompanies, loading]);
+  }), [user, role, allowedCompanies, tabPerms, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -121,9 +166,10 @@ export function useAuth(): AuthState {
   return useContext(AuthContext);
 }
 
-// Tab visibility map. Offline mode (role === null) sees everything — the
-// existing single-user product is unchanged. Online mode filters based on
-// the role custom claim.
+// Legacy role-only tab map — kept for any call sites that haven't moved
+// to the per-tab permissions API. New code should prefer
+// `tabAllowed(tab, role, tabPerms)` (3-arg form) below or the helpers
+// from `src/lib/tabAccess.ts` directly.
 export const TAB_PERMISSIONS: Record<string, Role[]> = {
   dashboard:  ['super_admin', 'admin', 'supervisor'],
   schedule:   ['super_admin', 'admin', 'supervisor'],
@@ -135,13 +181,31 @@ export const TAB_PERMISSIONS: Record<string, Role[]> = {
   layout:     ['super_admin', 'admin', 'supervisor'],
   shifts:     ['super_admin', 'admin', 'supervisor'],
   holidays:   ['super_admin', 'admin', 'supervisor'],
-  variables:  ['super_admin', 'admin'], // admin sees but cannot edit (read-only)
+  variables:  ['super_admin', 'admin'],
   audit:      ['super_admin', 'admin'],
   settings:   ['super_admin', 'admin', 'supervisor'],
+  superAdmin: ['super_admin'],
+  userManagement: ['super_admin'],
 };
 
-export function tabAllowed(tab: string, role: Role | null): boolean {
-  if (role === null) return true; // offline mode / no auth
-  const allowed = TAB_PERMISSIONS[tab];
-  return allowed ? allowed.includes(role) : true;
+/**
+ * True if the role (with optional per-user tabPerms override) has at
+ * least read access to `tab`. Use this for sidebar visibility.
+ */
+export function tabAllowed(tab: string, role: Role | null, tabPerms?: TabPerms | null): boolean {
+  return computeCanRead(tab, role, tabPerms ?? null);
 }
+
+/**
+ * True if the user can edit / add / delete inside `tab`. Use this to
+ * gate "+ Add", "Save", and destructive buttons.
+ */
+export function tabWritable(tab: string, role: Role | null, tabPerms?: TabPerms | null): boolean {
+  return computeCanWrite(tab, role, tabPerms ?? null);
+}
+
+/**
+ * Re-export the underlying access enum lookup for components that
+ * want the tri-state ('none' | 'read' | 'full') directly.
+ */
+export const tabAccess = computeTabAccess;

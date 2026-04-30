@@ -47,6 +47,8 @@ export const en: Dict = {
   'tab.variables': 'Legal Variables',
   'tab.audit': 'Audit Log',
   'tab.settings': 'System Settings',
+  'tab.superAdmin': 'Super Admin',
+  'tab.userManagement': 'User Management',
 
   // Common actions
   'action.save': 'Save',
@@ -1142,6 +1144,8 @@ export const ar: Dict = {
   'tab.variables': 'المتغيرات القانونية',
   'tab.audit': 'سجل التدقيق',
   'tab.settings': 'إعدادات النظام',
+  'tab.superAdmin': 'المسؤول الأعلى',
+  'tab.userManagement': 'إدارة المستخدمين',
 
   // Common actions
   'action.save': 'حفظ',
