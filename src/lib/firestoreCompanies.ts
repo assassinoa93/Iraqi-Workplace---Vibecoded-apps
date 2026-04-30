@@ -113,24 +113,19 @@ export async function renameCompany(
 }
 
 /**
- * Soft-delete via `archived: true` rather than a hard `deleteDoc`. Reasons:
- *   - We don't yet have the per-company subcollection cleanup logic
- *     (employees, shifts, schedules, etc.) — that's Phase 2.2/2.3.
- *     Hard-deleting a company while its data still lives elsewhere
- *     orphans those records.
- *   - The Super Admin tab (Phase 3) will offer an explicit "Permanently
- *     delete and remove all data" action that does the cascading wipe
- *     once the per-domain layers are in.
+ * Hard-delete the company document. In Phase 2.1 there are no per-company
+ * subcollections to cascade-clean (employees, shifts, schedules etc. still
+ * live in the Express layer), so a clean delete is safe and matches user
+ * expectation ("delete means gone, including in Firestore Console").
  *
- * The subscribeCompanies() filter hides archived rows from the switcher
- * so the UX matches "delete" from the user's perspective.
+ * When Phase 2.2 / 2.3 move per-domain data into subcollections, this
+ * function will get a cascading wipe (delete all `/companies/{id}/employees`,
+ * `/companies/{id}/shifts`, `/companies/{id}/schedules`, etc. before the
+ * registry doc itself). The Super Admin tab (Phase 3) will provide the
+ * confirm-with-typed-name guard for that destructive action.
  */
-export async function deleteCompany(id: string, actorUid: string | null): Promise<void> {
+export async function deleteCompany(id: string, _actorUid: string | null): Promise<void> {
   const db = await getDb();
-  const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
-  await updateDoc(doc(db, COLLECTION, id), {
-    archived: true,
-    updatedAt: serverTimestamp(),
-    updatedBy: actorUid ?? 'unknown',
-  });
+  const { doc, deleteDoc } = await import('firebase/firestore');
+  await deleteDoc(doc(db, COLLECTION, id));
 }
