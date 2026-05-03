@@ -336,7 +336,7 @@ export function KpiCard({ label, value, trend, unit }: { label: string; value: a
 }
 
 export function ScheduleCell({
-  value, onClick, isRecent, onMouseDown, onMouseEnter, readOnly,
+  value, onClick, isRecent, onMouseDown, onMouseEnter, readOnly, diff,
 }: {
   value: string;
   onClick: (e: React.MouseEvent) => void;
@@ -348,7 +348,23 @@ export function ScheduleCell({
   // the editing handlers in ScheduleTab. The visual change has to be
   // immediate or users keep clicking and assume the app is broken.
   readOnly?: boolean;
+  // v5.1.0 — re-approval diff outline. When the "Show changes since last
+  // archive" toggle is on, every cell that differs from the latest snapshot
+  // gets a 2px ring drawn via outline (so neighbour cells don't shift):
+  //   • added    → emerald (cell exists now, was empty in snapshot)
+  //   • modified → amber   (shift code changed)
+  //   • removed  → rose    (cell was filled in snapshot, now empty)
+  // undefined / null = no diff state, render normally.
+  diff?: 'added' | 'modified' | 'removed' | null;
 }) {
+  // The diff-outline + recent-change-outline are mutually compatible —
+  // recent-cell pulses, diff stays static — but we precompute the class
+  // once so the cn() call below stays readable.
+  const diffOutline =
+    diff === 'added'    ? 'outline outline-2 outline-emerald-500 dark:outline-emerald-400 z-10' :
+    diff === 'modified' ? 'outline outline-2 outline-amber-500 dark:outline-amber-300 z-10' :
+    diff === 'removed'  ? 'outline outline-2 outline-rose-500 dark:outline-rose-400 z-10' :
+    null;
   return (
     <button
       onClick={onClick}
@@ -371,7 +387,11 @@ export function ScheduleCell({
         readOnly && "cursor-not-allowed",
         // The "just-swapped" highlight: a soft pulsing ring drawn via outline
         // so it sits over neighbouring cells without nudging the layout.
-        isRecent && "outline outline-2 outline-amber-400 dark:outline-amber-300 z-10 animate-pulse"
+        isRecent && "outline outline-2 outline-amber-400 dark:outline-amber-300 z-10 animate-pulse",
+        // Diff outline takes priority over isRecent when both apply — the
+        // user explicitly asked to see what changed since the last archive,
+        // and an old paint operation's pulse would distract from that.
+        diffOutline,
       )}
     >
       {value}

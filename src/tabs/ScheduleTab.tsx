@@ -8,6 +8,7 @@ import { cn } from '../lib/utils';
 import { useI18n } from '../lib/i18n';
 import { ScheduleCell, MonthYearPicker } from '../components/Primitives';
 import { computeEmployeeRunningStats, formatEmployeeStatsTooltip, EmployeeRunningStats } from '../lib/employeeStats';
+import { summarizeDiffMap } from '../lib/firestoreSchedules';
 
 export type PaintMode = { shiftCode: string; stationId?: string } | null;
 
@@ -104,6 +105,23 @@ interface ScheduleTabProps {
   onSendBackSchedule?: () => void;
   onSaveSchedule?: () => void;
   onReopenSchedule?: () => void;
+  // v5.1.0 — re-approval diff view.
+  // App.tsx owns the snapshot fetch (one-shot getDocs on toggle) and passes
+  // the resulting diff Map down. The toggle state itself lives here so the
+  // banner can drive it; App.tsx subscribes to the toggle via a callback.
+  hasArchivedSnapshot?: boolean;     // true if at least one /snapshots doc exists for this month
+  diffMap?: import('../lib/firestoreSchedules').ScheduleDiffMap | null;
+  diffLoading?: boolean;
+  diffSnapshotLabel?: string | null; // e.g. "since 2026-04-12 14:08"
+  onToggleDiff?: (next: boolean) => void;
+  diffEnabled?: boolean;
+
+  // v5.1.0 — HRIS manual-bundle export. Banner-rendered button when the
+  // schedule is in 'saved' state. App.tsx owns the assembly + download +
+  // Firestore stamp; this tab just wires the click + busy flag.
+  onExportHrisBundle?: () => void;
+  hrisExportBusy?: boolean;
+  hrisLastExportedAt?: number | null;
 }
 
 // Layout constants used by both the sticky header row and the virtualized
@@ -138,6 +156,11 @@ interface RowData {
   // v5.0.2 — when false, every cell renders read-only (cursor-not-allowed
   // + faded bg). Driven by approval status (submitted/locked/saved).
   cellsReadOnly: boolean;
+  // v5.1.0 — when the user toggles "Show changes since last archive",
+  // a Map of `${empId}:${day}` → 'added' | 'modified' | 'removed' is
+  // threaded down here so the cell can render a coloured outline.
+  // null = diff view off (most of the time).
+  diffMap: import('../lib/firestoreSchedules').ScheduleDiffMap | null;
 }
 
 // Each visible row is rendered by react-window. We deliberately do NOT wrap
@@ -147,7 +170,7 @@ interface RowData {
 function ScheduleRow({
   index, style, rowPlan, days, schedule, onCellClick, onCellMouseDown, onCellMouseEnter,
   recentlyChangedCells, statsByEmpId, onToggleCollapse, groupingEnabled, totalGridWidth,
-  cellsReadOnly,
+  cellsReadOnly, diffMap,
 }: RowComponentProps<RowData>) {
   const item = rowPlan[index];
   if (!item) return <div style={style} />;
@@ -248,7 +271,9 @@ function ScheduleRow({
         </span>
       </div>
       {days.map(day => {
-        const isRecent = !!emp && !!recentlyChangedCells?.has(`${emp.empId}:${day}`);
+        const cellKey = emp ? `${emp.empId}:${day}` : '';
+        const isRecent = !!emp && !!recentlyChangedCells?.has(cellKey);
+        const diffKind = emp && diffMap ? diffMap.get(cellKey) ?? null : null;
         return (
           <div key={day} className="border-r schedule-grid-line flex-shrink-0" style={{ width: DAY_CELL_WIDTH, minWidth: DAY_CELL_WIDTH }}>
             <ScheduleCell
@@ -258,6 +283,7 @@ function ScheduleRow({
               onMouseEnter={() => emp && onCellMouseEnter(emp.empId, day)}
               isRecent={isRecent}
               readOnly={cellsReadOnly}
+              diff={diffKind}
             />
           </div>
         );
@@ -282,6 +308,11 @@ export function ScheduleTab({
   approval, monthLabel, role, canEditCells = true,
   onSubmitForApproval, onLockSchedule, onSendBackSchedule,
   onSaveSchedule, onReopenSchedule,
+  // v5.1.0 — diff view props (banner-driven).
+  hasArchivedSnapshot = false, diffMap = null, diffLoading = false,
+  diffSnapshotLabel = null, onToggleDiff, diffEnabled = false,
+  // v5.1.0 — HRIS bundle export (banner-driven, saved-only).
+  onExportHrisBundle, hrisExportBusy = false, hrisLastExportedAt = null,
 }: ScheduleTabProps) {
   const { t } = useI18n();
 
@@ -624,6 +655,15 @@ export function ScheduleTab({
           onSendBack={onSendBackSchedule}
           onSave={onSaveSchedule}
           onReopen={onReopenSchedule}
+          hasArchivedSnapshot={hasArchivedSnapshot}
+          diffEnabled={diffEnabled}
+          diffLoading={diffLoading}
+          diffSnapshotLabel={diffSnapshotLabel}
+          diffSummary={diffEnabled && diffMap ? summarizeDiffMap(diffMap) : null}
+          onToggleDiff={onToggleDiff}
+          onExportHrisBundle={onExportHrisBundle}
+          hrisExportBusy={hrisExportBusy}
+          hrisLastExportedAt={hrisLastExportedAt}
         />
       )}
 
@@ -1006,6 +1046,7 @@ export function ScheduleTab({
                   groupingEnabled: scheduleGroupByStation,
                   totalGridWidth,
                   cellsReadOnly: !canEditCells,
+                  diffMap: diffEnabled ? diffMap : null,
                 }}
               />
             )}

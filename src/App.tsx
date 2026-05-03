@@ -102,9 +102,15 @@ import {
   sendBackToSupervisor as fsSendBackToSupervisor,
   sendBackToManager as fsSendBackToManager,
   reopenSchedule as fsReopenSchedule,
+  getLatestSnapshot as fsGetLatestSnapshot,
+  diffScheduleVsSnapshot,
+  stampHrisExport as fsStampHrisExport,
   type ApprovalBlock,
   type HrisSyncBlock,
+  type ScheduleDiffMap,
+  type ScheduleSnapshot,
 } from './lib/firestoreSchedules';
+import { assembleHrisBundle, buildBundleFilename } from './lib/hrisBundle';
 import { effectiveStatus, availableActionsFor, formatApprovalActor } from './lib/scheduleApproval';
 import { useApprovalQueue } from './lib/useApprovalQueue';
 import {
@@ -237,6 +243,23 @@ export default function App() {
   // accept clicks (read-only outside draft).
   const [activeMonthApproval, setActiveMonthApproval] = useState<ApprovalBlock | undefined>(undefined);
   const [activeMonthHrisSync, setActiveMonthHrisSync] = useState<HrisSyncBlock | undefined>(undefined);
+
+  // v5.1.0 — re-approval diff view. Three pieces of state, all owned here
+  // so the snapshot fetch happens once per toggle and is shared between
+  // the schedule grid (which colours cells) and the banner (which shows
+  // the count + legend).
+  //   • diffSnapshot    — the most-recent /snapshots/{ts} doc, lazy-loaded
+  //                        on first toggle. Cleared on month / company switch.
+  //   • diffEnabled     — whether the user toggled the diff view on.
+  //   • diffLoading     — true while the one-shot getDocs is in flight.
+  const [diffSnapshot, setDiffSnapshot] = useState<ScheduleSnapshot | null>(null);
+  const [diffEnabled, setDiffEnabled] = useState<boolean>(false);
+  const [diffLoading, setDiffLoading] = useState<boolean>(false);
+
+  // v5.1.0 — HRIS manual-bundle export busy state. Shown on the banner
+  // button so the admin can't double-click and trigger a parallel zip
+  // assembly. The download itself is tied to a one-shot anchor click.
+  const [hrisExportBusy, setHrisExportBusy] = useState<boolean>(false);
 
   // v5.0 — pending-approval queue. Each role sees what's actionable for
   // them. Manager + admin + super-admin care about validation/finalization
@@ -652,6 +675,12 @@ export default function App() {
   // re-render path. Resets to undefined on month switch / company switch
   // / sign-out so stale state doesn't leak between contexts.
   useEffect(() => {
+    // v5.1.0 — every month/company switch invalidates the diff state.
+    // The toggle's "off" default + an empty snapshot prevents a stale
+    // snapshot from a previous month leaking into the cell renderer.
+    setDiffSnapshot(null);
+    setDiffEnabled(false);
+    setDiffLoading(false);
     if (!isAuthenticated || !activeCompanyId) {
       setActiveMonthApproval(undefined);
       setActiveMonthHrisSync(undefined);
@@ -2609,6 +2638,137 @@ export default function App() {
   const activeMonthStatus = effectiveStatus(activeMonthApproval);
   const activeMonthCanEdit = availableActionsFor(activeMonthStatus, role).canEditCells;
 
+  // v5.1.0 — re-approval diff view.
+  // hasArchivedSnapshot is derived from the approval block (no extra
+  // listener) — if the schedule has ever reached `saved` status, at least
+  // one /snapshots doc was written. The toggle button surfaces in the
+  // banner when this is true; clicking it lazy-loads the snapshot and
+  // computes the diff against the current `schedule`.
+  const hasArchivedSnapshot = useMemo(() => {
+    if (!activeMonthApproval) return false;
+    if (activeMonthApproval.savedAt) return true;
+    return !!activeMonthApproval.history?.some((h) => h.action === 'save');
+  }, [activeMonthApproval]);
+
+  const handleToggleDiff = async (next: boolean) => {
+    if (!next) {
+      setDiffEnabled(false);
+      return;
+    }
+    if (!activeCompanyId) return;
+    // If we already have the snapshot for this month, just flip the flag.
+    if (diffSnapshot) {
+      setDiffEnabled(true);
+      return;
+    }
+    setDiffLoading(true);
+    try {
+      const snap = await fsGetLatestSnapshot(activeCompanyId, activeMonthYyyymm);
+      if (!snap) {
+        // Edge case — banner thought there was a snapshot but the
+        // collection was empty (e.g. snapshot doc write failed silently
+        // post-save). Surface a friendly notice instead of leaving the
+        // user staring at a still-toggled-off button.
+        showInfo(
+          t('info.notice.title'),
+          'No archived snapshot is available for this month yet. The diff view becomes available after the schedule has been saved at least once.',
+        );
+        return;
+      }
+      setDiffSnapshot(snap);
+      setDiffEnabled(true);
+    } catch (err) {
+      console.error('[Scheduler] getLatestSnapshot failed:', err);
+      showInfo(
+        t('info.error.title'),
+        'Failed to load the archived snapshot for the diff view. Refresh and try again.',
+      );
+    } finally {
+      setDiffLoading(false);
+    }
+  };
+
+  // Compute the diff map only when the toggle is on and we have a
+  // snapshot. Memoised on (schedule, snapshot) so cell-level edits while
+  // the diff is on recompute cheaply.
+  const diffMap: ScheduleDiffMap | null = useMemo(() => {
+    if (!diffEnabled || !diffSnapshot) return null;
+    return diffScheduleVsSnapshot(schedule, diffSnapshot.entries);
+  }, [diffEnabled, diffSnapshot, schedule]);
+
+  const diffSnapshotLabel = diffSnapshot?.savedAt
+    ? `since ${format(new Date(diffSnapshot.savedAt), 'yyyy-MM-dd HH:mm')}`
+    : null;
+
+  // v5.1.0 — HRIS manual-bundle export.
+  // Available only when status === 'saved' (the schedule is officially
+  // archived). Assembles the .zip in-memory via jszip (lazy-loaded), kicks
+  // off the browser download, then writes hrisSync.lastExportedAt + audit
+  // entry. Never touches the entries map — pure read + Firestore stamp.
+  const handleExportHrisBundle = async () => {
+    const meta = approvalActorMeta();
+    if (!meta || !activeCompanyId || !activeMonthApproval) return;
+    if (effectiveStatus(activeMonthApproval) !== 'saved') return;
+    setHrisExportBusy(true);
+    try {
+      const blob = await assembleHrisBundle({
+        companyId: activeCompanyId,
+        companyName: activeCompanyLabel,
+        monthLabel: activeMonthLabel,
+        yyyymm: activeMonthYyyymm,
+        year: config.year,
+        month: config.month,
+        daysInMonth: config.daysInMonth,
+        schedule,
+        employees,
+        shifts,
+        stations,
+        holidays,
+        config,
+        violations,
+        approval: activeMonthApproval,
+        exportedByUid: meta.uid,
+        exportedByName: meta.name ?? null,
+        exportedByPosition: meta.position ?? null,
+        exportedByEmail: meta.email,
+      });
+      // Browser-side download via a transient anchor + object URL. The
+      // URL is revoked on next tick to release the Blob — leaving it
+      // around hangs onto the in-memory zip until page reload.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = buildBundleFilename(activeMonthYyyymm, activeCompanyId);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+
+      // Firestore stamp + audit run AFTER the user has the file in hand
+      // so a stamp-write failure can't make them think the export
+      // didn't happen. Both are best-effort — the bundle on disk is the
+      // canonical artifact.
+      try {
+        await fsStampHrisExport(activeCompanyId, activeMonthYyyymm, meta);
+      } catch (err) {
+        console.error('[Scheduler] stampHrisExport failed (non-fatal):', err);
+      }
+      void writeAuditEntries(
+        [buildApprovalAuditEntry({ action: 'hris-export', yyyymm: activeMonthYyyymm, actorRole: meta.role })],
+        activeCompanyId, meta.uid, meta.email,
+      ).catch(() => {});
+    } catch (err) {
+      console.error('[Scheduler] HRIS bundle export failed:', err);
+      const e = err as { message?: string };
+      showInfo(
+        t('info.error.title'),
+        e?.message ?? 'Failed to assemble the HRIS bundle. Refresh and try again.',
+      );
+    } finally {
+      setHrisExportBusy(false);
+    }
+  };
+
   // --- Simulation mode ---
   const enterSimMode = () => {
     if (simMode) return;
@@ -3139,6 +3299,21 @@ export default function App() {
                 onSendBackSchedule={() => setSendBackModalOpen(true)}
                 onSaveSchedule={() => setSaveModalOpen(true)}
                 onReopenSchedule={() => setReopenModalOpen(true)}
+                hasArchivedSnapshot={hasArchivedSnapshot}
+                diffMap={diffMap}
+                diffEnabled={diffEnabled}
+                diffLoading={diffLoading}
+                diffSnapshotLabel={diffSnapshotLabel}
+                onToggleDiff={handleToggleDiff}
+                onExportHrisBundle={handleExportHrisBundle}
+                hrisExportBusy={hrisExportBusy}
+                hrisLastExportedAt={(() => {
+                  const t = activeMonthHrisSync?.lastExportedAt as { toMillis?: () => number; seconds?: number } | undefined;
+                  if (!t) return null;
+                  if (typeof t.toMillis === 'function') return t.toMillis();
+                  if (typeof t.seconds === 'number') return t.seconds * 1000;
+                  return null;
+                })()}
               />
             )}
 

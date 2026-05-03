@@ -1,7 +1,7 @@
 {
   "name": "iraqi-labor-scheduler",
   "private": true,
-  "version": "5.0.2",
+  "version": "5.1.0",
   "description": "Workforce scheduler tailored for Iraqi Labor Law (Art. 67-74, 88). Dual-mode: offline-first single-user OR Firebase-backed multi-user with role-based access and full in-app management.",
   "author": {
     "name": "Iraqi Labor Scheduler Project",
@@ -44,6 +44,7 @@
     "firebase-admin": "^13.8.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.378.0",
     "motion": "^11.16.0",
     "react": "^18.3.1",

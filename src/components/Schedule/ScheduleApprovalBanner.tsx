@@ -18,9 +18,10 @@ import React from 'react';
 import { format } from 'date-fns';
 import {
   CheckCircle2, AlertTriangle, ShieldCheck, Lock as LockIcon,
-  Send, Inbox, Undo2, ArrowLeft, ArrowRight, Pencil,
+  Send, Inbox, Undo2, ArrowLeft, ArrowRight, Pencil, GitCompare, Loader2,
+  PackageCheck, Download,
 } from 'lucide-react';
-import type { ApprovalBlock, ApprovalStatus } from '../../lib/firestoreSchedules';
+import type { ApprovalBlock, ApprovalStatus, ScheduleDiffSummary } from '../../lib/firestoreSchedules';
 import type { Role } from '../../lib/auth';
 import { availableActionsFor, formatApprovalActor } from '../../lib/scheduleApproval';
 import { cn } from '../../lib/utils';
@@ -41,6 +42,26 @@ interface Props {
   onSendBack?: () => void;        // visible in submitted (manager) / locked (admin)
   onSave?: () => void;            // visible in locked for admin+
   onReopen?: () => void;          // visible in saved for admin+
+
+  // v5.1.0 — re-approval diff view. The banner owns the toggle visibility
+  // (it knows the status / has-snapshot context) but App.tsx owns the
+  // snapshot fetch and diff state. Toggle button only renders when
+  // hasArchivedSnapshot AND the schedule has been through a save → reopen
+  // cycle (or is currently post-reopen). Body line "Resubmitted after
+  // previous archive" appears in the same circumstances so reviewers
+  // know they're looking at a re-approval.
+  hasArchivedSnapshot?: boolean;
+  diffEnabled?: boolean;
+  diffLoading?: boolean;
+  diffSummary?: ScheduleDiffSummary | null;
+  diffSnapshotLabel?: string | null;
+  onToggleDiff?: (next: boolean) => void;
+
+  // v5.1.0 — HRIS manual-bundle export. Renders only in 'saved' state.
+  // App.tsx owns the assembly + download + Firestore stamp + audit.
+  onExportHrisBundle?: () => void;
+  hrisExportBusy?: boolean;
+  hrisLastExportedAt?: number | null;
 }
 
 // Convert any of {Date | Timestamp | number} into a human-readable label.
@@ -59,6 +80,9 @@ function formatStamp(stamp: unknown): string {
 export function ScheduleApprovalBanner({
   approval, monthLabel, role, canWriteSchedule,
   onSubmit, onLock, onSendBack, onSave, onReopen,
+  hasArchivedSnapshot, diffEnabled, diffLoading,
+  diffSummary, diffSnapshotLabel, onToggleDiff,
+  onExportHrisBundle, hrisExportBusy, hrisLastExportedAt,
 }: Props) {
   const status: ApprovalStatus = approval?.status ?? 'draft';
   const actions = availableActionsFor(status, role);
@@ -67,7 +91,18 @@ export function ScheduleApprovalBanner({
   // (role===null) — no workflow there, the existing UI is unchanged.
   if (role === null && status === 'draft') return null;
 
-  const config = bannerConfigFor(status, approval);
+  // v5.1.0 — "this is a re-approval" detection. Three signals that this
+  // schedule has been through a save → reopen cycle:
+  //   • hasArchivedSnapshot — at least one /snapshots doc exists
+  //   • approval.history contains a 'reopen' action — explicit user intent
+  //   • the schedule already entered 'saved' once (savedAt is set even if
+  //     the current status is now 'draft' / 'submitted' / 'locked')
+  // Any of those is enough; the snapshot existence is the strongest signal
+  // because it's the artifact reviewers will diff against.
+  const wasReopened = !!approval?.history?.some((h) => h.action === 'reopen');
+  const isReApproval = !!hasArchivedSnapshot || wasReopened || !!approval?.savedAt;
+
+  const config = bannerConfigFor(status, approval, isReApproval);
 
   return (
     <div
@@ -154,9 +189,127 @@ export function ScheduleApprovalBanner({
               Reopen for editing
             </button>
           )}
+
+          {/* v5.1.0 — Export HRIS bundle. Renders only in 'saved' state
+              (the official archive). Available to admin / super-admin —
+              we mirror the role gate from the workflow rather than adding
+              a separate one, since admins are who deal with payroll
+              integrations. The button shows "Re-export" wording when a
+              prior export exists so it's clear they're producing a fresh
+              snapshot of the same archive. */}
+          {status === 'saved' && (role === 'admin' || role === 'super_admin') && onExportHrisBundle && (
+            <button
+              onClick={onExportHrisBundle}
+              disabled={!!hrisExportBusy}
+              title={
+                hrisLastExportedAt
+                  ? `Last exported ${format(new Date(hrisLastExportedAt), 'yyyy-MM-dd HH:mm')}. Re-exporting produces a fresh bundle with a new bundle ID.`
+                  : 'Assemble the HRIS handoff bundle (manifest + schedule.csv + roster.csv + leaves.csv + compliance.json + README) as a single .zip download.'
+              }
+              className={cn(
+                'apple-press inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest font-mono shadow-sm border',
+                'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600',
+                hrisExportBusy && 'opacity-60 cursor-wait',
+              )}
+            >
+              {hrisExportBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <PackageCheck className="w-3 h-3" />}
+              {hrisLastExportedAt ? 'Re-export HRIS bundle' : 'Export HRIS bundle'}
+              <Download className="w-3 h-3" />
+            </button>
+          )}
+
+          {/* v5.1.0 — Show changes since last archive. Only renders when
+              there's a snapshot to diff against AND the schedule isn't in
+              pristine 'draft' state with no prior approval cycle (the diff
+              would be empty there). The button is independent of the
+              role-driven action buttons — every reviewer sees it. */}
+          {isReApproval && onToggleDiff && (
+            <DiffToggleButton
+              enabled={!!diffEnabled}
+              loading={!!diffLoading}
+              summary={diffSummary ?? null}
+              snapshotLabel={diffSnapshotLabel ?? null}
+              onToggle={onToggleDiff}
+            />
+          )}
         </div>
+
+        {/* v5.1.0 — last-exported hint under the saved-state action row.
+            Confirms to the admin that a previous export exists; the
+            re-export button above re-runs the same flow. */}
+        {status === 'saved' && hrisLastExportedAt && (
+          <p className="text-[10px] font-medium text-emerald-700/80 dark:text-emerald-200/70 mt-1">
+            HRIS bundle last exported {format(new Date(hrisLastExportedAt), 'yyyy-MM-dd HH:mm')}.
+          </p>
+        )}
+
+        {/* Diff legend — only when the diff is on AND we have a result.
+            Quick visual key so reviewers don't have to guess what each
+            colour ring means. */}
+        {diffEnabled && diffSummary && diffSummary.total > 0 && (
+          <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mt-1">
+            <span className="inline-flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-sm border-2 border-emerald-500 dark:border-emerald-400" />
+              Added · {diffSummary.added}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-sm border-2 border-amber-500 dark:border-amber-300" />
+              Modified · {diffSummary.modified}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-sm border-2 border-rose-500 dark:border-rose-400" />
+              Removed · {diffSummary.removed}
+            </span>
+            {diffSnapshotLabel && (
+              <span className="ms-auto font-mono normal-case text-slate-400 dark:text-slate-500">{diffSnapshotLabel}</span>
+            )}
+          </div>
+        )}
+        {diffEnabled && diffSummary && diffSummary.total === 0 && (
+          <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 italic mt-1">
+            No changes since the last archived version.
+          </p>
+        )}
       </div>
     </div>
+  );
+}
+
+// v5.1.0 — bundled toggle so the button itself + busy state + summary pill
+// stay in one component. Keeping it inside this file rather than its own
+// keeps the banner self-contained for the diff feature; the cell-level
+// outline is the only piece outside.
+function DiffToggleButton({
+  enabled, loading, summary, snapshotLabel, onToggle,
+}: {
+  enabled: boolean;
+  loading: boolean;
+  summary: ScheduleDiffSummary | null;
+  snapshotLabel: string | null;
+  onToggle: (next: boolean) => void;
+}) {
+  const totalLabel = enabled && summary ? ` · ${summary.total}` : '';
+  return (
+    <button
+      onClick={() => onToggle(!enabled)}
+      disabled={loading}
+      title={
+        snapshotLabel
+          ? `Compare current schedule to the latest archived snapshot (${snapshotLabel})`
+          : 'Compare current schedule to the latest archived snapshot'
+      }
+      aria-pressed={enabled}
+      className={cn(
+        'apple-press inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest font-mono shadow-sm border',
+        enabled
+          ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+          : 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-200 border-blue-300 dark:border-blue-500/40 hover:bg-blue-50 dark:hover:bg-blue-500/10',
+        loading && 'opacity-60 cursor-wait',
+      )}
+    >
+      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <GitCompare className="w-3 h-3" />}
+      {enabled ? 'Hide changes' : 'Show changes'}{totalLabel}
+    </button>
   );
 }
 
@@ -173,7 +326,27 @@ interface BannerConfig {
   bodyLines: string[];
 }
 
-function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undefined): BannerConfig {
+function bannerConfigFor(
+  status: ApprovalStatus,
+  approval: ApprovalBlock | undefined,
+  isReApproval: boolean,
+): BannerConfig {
+  // v5.1.0 — when a schedule has already been through a save → reopen
+  // cycle, prepend a body line so reviewers immediately know they're
+  // looking at a re-approval (not a fresh submission). The "Show changes
+  // since last archive" toggle (rendered separately as the diff button)
+  // is the actionable companion to this signal.
+  const reApprovalLine = (status: ApprovalStatus): string | null => {
+    if (!isReApproval) return null;
+    if (status === 'saved') return 'Re-saved after a previous archive — the latest snapshot is now the official record.';
+    if (status === 'draft') return 'Reopened from a previous archive — edit cells, then resubmit through the chain.';
+    return 'Resubmitted after a previous archive — use "Show changes" below to compare against the latest archived snapshot.';
+  };
+  const prefixWithReApproval = (lines: string[]): string[] => {
+    const re = reApprovalLine(status);
+    return re ? [re, ...lines] : lines;
+  };
+
   switch (status) {
     case 'draft':
       return {
@@ -186,7 +359,7 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         bodyColor: 'text-slate-600 dark:text-slate-300',
         notesBg: 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300',
         title: 'Draft schedule',
-        bodyLines: ['Edit cells freely, then submit for approval when ready.'],
+        bodyLines: prefixWithReApproval(['Edit cells freely, then submit for approval when ready.']),
       };
     case 'submitted':
       return {
@@ -199,10 +372,10 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         bodyColor: 'text-amber-700 dark:text-amber-200/80',
         notesBg: 'bg-amber-100/60 dark:bg-amber-500/15 text-amber-800 dark:text-amber-100',
         title: 'Submitted — awaiting manager validation',
-        bodyLines: [
+        bodyLines: prefixWithReApproval([
           `Submitted by ${formatApprovalActor(approval?.submittedByName, approval?.submittedByPosition, approval?.submittedBy)} on ${formatStamp(approval?.submittedAt)}.`,
           'Cells are read-only until a manager locks or sends it back.',
-        ],
+        ]),
       };
     case 'rejected':
       return {
@@ -215,9 +388,7 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         bodyColor: 'text-rose-700 dark:text-rose-200/80',
         notesBg: 'bg-rose-100/60 dark:bg-rose-500/15 text-rose-800 dark:text-rose-100',
         title: 'Sent back for edits',
-        bodyLines: [
-          'Make the requested changes, then resubmit.',
-        ],
+        bodyLines: prefixWithReApproval(['Make the requested changes, then resubmit.']),
       };
     case 'locked':
       return {
@@ -230,10 +401,10 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         bodyColor: 'text-blue-700 dark:text-blue-200/80',
         notesBg: 'bg-blue-100/60 dark:bg-blue-500/15 text-blue-800 dark:text-blue-100',
         title: 'Locked — manager-validated, awaiting admin finalization',
-        bodyLines: [
+        bodyLines: prefixWithReApproval([
           `Locked by ${formatApprovalActor(approval?.lockedByName, approval?.lockedByPosition, approval?.lockedBy)} on ${formatStamp(approval?.lockedAt)}.`,
           'Cells are read-only. Admin can save & finalize, or send back to manager.',
-        ],
+        ]),
       };
     case 'saved':
       return {
@@ -246,10 +417,10 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         bodyColor: 'text-emerald-700 dark:text-emerald-200/80',
         notesBg: 'bg-emerald-100/60 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-100',
         title: 'Saved — final, archived for record-keeping',
-        bodyLines: [
+        bodyLines: prefixWithReApproval([
           `Saved by ${formatApprovalActor(approval?.savedByName, approval?.savedByPosition, approval?.savedBy)} on ${formatStamp(approval?.savedAt)}.`,
           'This is the official version. Admin can export to HRIS or reopen for amendments.',
-        ],
+        ]),
       };
   }
 }

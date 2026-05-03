@@ -555,6 +555,180 @@ export async function reopenSchedule(
   return result;
 }
 
+// ── v5.1 — snapshot diff loader ───────────────────────────────────────────
+//
+// The "Show changes since last archive" toggle in the schedule banner
+// lazy-loads the most-recent snapshot and renders changed cells with
+// coloured outlines. Loader is cheap because each schedule month has at
+// most a handful of snapshots (one per save), and the doc payload is the
+// same shape as a full schedule month (~56 KB at 60×31).
+
+export interface ScheduleSnapshot {
+  /** Doc ID — millisecond timestamp at save-time, descending sort key. */
+  id: string;
+  entries: Schedule;
+  /** When the snapshot was written (server timestamp). Useful for the
+   * "since YYYY-MM-DD" label in the diff header. */
+  savedAt: number | null;
+  savedBy: string | null;
+  /** Snapshot writer version — currently '5.0', bumped if the payload
+   * shape changes so the renderer can refuse a future format. */
+  version: string;
+}
+
+/**
+ * Fetch the most-recent snapshot for a schedule month. Returns null when
+ * the schedule has never been saved (no snapshots written yet) — the
+ * banner uses that to suppress the diff toggle entirely.
+ *
+ * Why query-then-pick-first: Firestore's `limit(1)` plus `orderBy(__name__,
+ * 'desc')` returns the highest-keyed doc, which IS the latest because
+ * snapshot IDs are millisecond timestamps stringified. Cheaper than
+ * fetching every snapshot and sorting client-side.
+ */
+export async function getLatestSnapshot(
+  companyId: string,
+  yyyymm: string,
+): Promise<ScheduleSnapshot | null> {
+  const db = await getDb();
+  const { collection, query, orderBy, limit, getDocs } = await import('firebase/firestore');
+  const ref = collection(db, 'companies', companyId, SUBCOLLECTION, yyyymm, 'snapshots');
+  const q = query(ref, orderBy('__name__', 'desc'), limit(1));
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const docSnap = snap.docs[0];
+  const data = docSnap.data() as { entries?: Schedule; savedAt?: unknown; savedBy?: string; version?: string };
+  const toMs = (v: unknown): number | null => {
+    if (!v) return null;
+    const t = v as { toMillis?: () => number; seconds?: number };
+    if (typeof t.toMillis === 'function') return t.toMillis();
+    if (typeof t.seconds === 'number') return t.seconds * 1000;
+    if (typeof v === 'number') return v;
+    return null;
+  };
+  return {
+    id: docSnap.id,
+    entries: data.entries ?? {},
+    savedAt: toMs(data.savedAt),
+    savedBy: data.savedBy ?? null,
+    version: data.version ?? 'unknown',
+  };
+}
+
+export type ScheduleDiffKind = 'added' | 'modified' | 'removed';
+export type ScheduleDiffMap = Map<string, ScheduleDiffKind>;
+
+export interface ScheduleDiffSummary {
+  added: number;
+  modified: number;
+  removed: number;
+  total: number;
+}
+
+/** Aggregate the diff map for the banner pill ("12 changed: 5 added · 4 modified · 3 removed"). */
+export function summarizeDiffMap(diff: ScheduleDiffMap): ScheduleDiffSummary {
+  let added = 0, modified = 0, removed = 0;
+  for (const kind of diff.values()) {
+    if (kind === 'added') added++;
+    else if (kind === 'modified') modified++;
+    else removed++;
+  }
+  return { added, modified, removed, total: added + modified + removed };
+}
+
+/**
+ * Compute the cell-level diff between a current schedule and a snapshot.
+ * Returns a Map keyed by `${empId}:${day}` so the schedule cell can do an
+ * O(1) lookup as it renders. Empty map means nothing changed.
+ *
+ * Three states matter for the UI:
+ *   - 'added':    cell exists now, didn't in the snapshot
+ *   - 'modified': cell exists in both but shiftCode differs (stationId
+ *                 changes alone don't count — they're a rendering detail
+ *                 that the reviewer doesn't need to flag separately)
+ *   - 'removed':  cell existed in the snapshot but not now
+ *
+ * stationId-only diffs are intentionally suppressed — visually the cell
+ * still shows the same shift code, so flagging it would be confusing
+ * noise. Comment this in case the policy ever needs to change.
+ */
+export function diffScheduleVsSnapshot(
+  current: Schedule,
+  snapshot: Schedule,
+): ScheduleDiffMap {
+  const diff: ScheduleDiffMap = new Map();
+  const allEmpIds = new Set<string>([
+    ...Object.keys(current),
+    ...Object.keys(snapshot),
+  ]);
+  for (const empId of allEmpIds) {
+    const cur = current[empId] ?? {};
+    const snap = snapshot[empId] ?? {};
+    const allDays = new Set<string>([
+      ...Object.keys(cur),
+      ...Object.keys(snap),
+    ]);
+    for (const dayKey of allDays) {
+      const day = Number(dayKey);
+      const c = cur[day];
+      const s = snap[day];
+      const cCode = c?.shiftCode ?? '';
+      const sCode = s?.shiftCode ?? '';
+      if (cCode === sCode) continue;
+      const key = `${empId}:${day}`;
+      if (!sCode && cCode) diff.set(key, 'added');
+      else if (sCode && !cCode) diff.set(key, 'removed');
+      else diff.set(key, 'modified');
+    }
+  }
+  return diff;
+}
+
+/**
+ * v5.1.0 — stamp `hrisSync` on the schedule doc after a successful HRIS
+ * bundle export. Writes only the lastExportedAt / lastExportedBy /
+ * method fields so concurrent approval transitions don't trample each
+ * other (each writer touches a disjoint subobject).
+ *
+ * The Firestore call is field-path scoped (no `merge: true` games on
+ * other top-level keys) and returns silently — the caller already wrote
+ * the bundle to disk; a stamp failure is non-fatal but logged.
+ */
+export async function stampHrisExport(
+  companyId: string,
+  yyyymm: string,
+  actor: TransitionActor,
+): Promise<void> {
+  const db = await getDb();
+  const { doc, updateDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
+  const ref = doc(db, 'companies', companyId, SUBCOLLECTION, yyyymm);
+  const update = {
+    'hrisSync.lastExportedAt': serverTimestamp(),
+    'hrisSync.lastExportedBy': actor.uid,
+    'hrisSync.method': 'manual-bundle' as const,
+  };
+  try {
+    await updateDoc(ref, update);
+  } catch (err: unknown) {
+    // Doc-not-found = the schedule doc somehow doesn't exist yet
+    // (shouldn't happen in the export flow because export is gated on
+    // status='saved', which requires a write to land first). Fall back
+    // to merge-set as defence-in-depth.
+    const e = err as { code?: string; message?: string };
+    if (e?.code === 'not-found' || /No document to update/i.test(e?.message ?? '')) {
+      await setDoc(ref, {
+        hrisSync: {
+          lastExportedAt: serverTimestamp(),
+          lastExportedBy: actor.uid,
+          method: 'manual-bundle',
+        },
+      }, { merge: true });
+      return;
+    }
+    throw err;
+  }
+}
+
 /**
  * Write the immutable snapshot doc that captures a saved schedule's
  * entries map at the moment of finalization. Called by saveSchedule()

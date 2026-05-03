@@ -2,6 +2,38 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v5.1.0 — 2026-05-03
+
+**Minor version. Re-approval diff view + HRIS manual-bundle export.** v5.0 made the approval workflow real; v5.1 closes the two follow-on gaps that real-world payroll cycles need: (1) when a saved schedule is reopened and re-submitted, reviewers can now see exactly which cells changed since the last archived snapshot, instead of having to remember; and (2) when a schedule is finally saved, an admin can produce a single .zip handoff for HRIS import without leaving the app.
+
+Both features are **Online-mode only** by design (the workflow itself is online-only, so the diff and the export inherit that gate). Offline Demo mode is unchanged.
+
+**Re-approval diff view** ([`firestoreSchedules.ts`](src/lib/firestoreSchedules.ts), [`Primitives.tsx`](src/components/Primitives.tsx), [`ScheduleApprovalBanner.tsx`](src/components/Schedule/ScheduleApprovalBanner.tsx))
+- New `getLatestSnapshot()` helper queries `/companies/{cid}/schedules/{yyyymm}/snapshots/` ordered by doc ID descending, limit 1. Doc IDs are millisecond timestamps so the highest-keyed doc is always the latest archive — no separate `orderBy` needed.
+- New `diffScheduleVsSnapshot(current, snapshot)` returns a `Map<"empId:day", 'added' | 'modified' | 'removed'>`. **Station-only changes are intentionally suppressed** — visually the cell still shows the same shift code, so flagging it would be confusing noise. Empty `shiftCode` is treated as no-cell so a cleared-then-still-empty round-trip doesn't false-positive as removed.
+- Banner renders a **"Show changes since last archive"** toggle when (a) a snapshot exists for the month OR (b) approval history contains a `reopen` action OR (c) `approval.savedAt` is set. The toggle lazy-loads the snapshot on first click; subsequent toggles flip the flag without re-fetching. Schedule cells get a 2px outline ring (emerald = added, amber = modified, rose = removed) with a legend below the action row.
+- Banner body lines now prepend **"Resubmitted after a previous archive"** when the schedule is mid-re-approval, **"Reopened from a previous archive"** when status is `draft` post-reopen, and **"Re-saved after a previous archive"** when status is `saved` again. Reviewers know immediately whether they're looking at a fresh submission or a re-approval cycle.
+- 10 new tests in [`scheduleDiff.test.ts`](src/lib/__tests__/scheduleDiff.test.ts) cover empty/empty, code-only-change vs station-only-change, added vs removed vs modified attribution, station-only suppression, the supervisor-cleared-then-blank round-trip, employees who only exist on one side, and the summary aggregator.
+
+**HRIS manual-bundle export** ([`hrisBundle.ts`](src/lib/hrisBundle.ts), [`firestoreSchedules.ts`](src/lib/firestoreSchedules.ts), [`ScheduleApprovalBanner.tsx`](src/components/Schedule/ScheduleApprovalBanner.tsx))
+- New `assembleHrisBundle()` produces a single `.zip` (`HRIS_<companyId>_<yyyymm>.zip`) with six files:
+  - `manifest.json` — schema-versioned metadata + the **full approval lineage** (submitted / locked / saved actors with names, positions, timestamps, and reviewer notes; plus the complete `history[]` from the approval block). Bundle ID = `<yyyymm>-<ms>` so re-exports after a reopen → re-save cycle get a stable dedupe key.
+  - `schedule.csv` — header `Employee ID, Name, Role, Department, Day 1 … Day N`, one row per employee. Same shape the existing `exportScheduleCSV` button produces, so HRIS importers that already parse it keep working.
+  - `roster.csv` — employee master data (id, name, role, department, category, gender, contract type, weekly hours, salary, hire date, phone, notes).
+  - `leaves.csv` — every leave range overlapping the active month (annual, sick, maternity), with a `Source` column distinguishing `explicit` (LeaveManagerModal entries) from `painted` (auto-derived from contiguous AL/SL/MAT cells) so downstream systems can tell them apart.
+  - `compliance.json` — violations + info findings + heuristic score. The README clarifies that `info` severity = legitimate operational situation, `violation` = hard rule break — same distinction the schedule banner makes.
+  - `README.txt` — plain-English walkthrough: bundle ID, company, month, generator identity, full approval lineage, file-by-file description, import-order recommendation, re-export semantics.
+- jszip is **lazy-loaded** (12 KB gzipped) at the moment of export — same pattern as the jspdf report path — so the initial bundle stays small for users who never reach a saved schedule.
+- Banner gains an **"Export HRIS bundle"** button that renders only in `saved` state for `admin` / `super_admin`. Wording switches to **"Re-export HRIS bundle"** when `hrisSync.lastExportedAt` is set, with a "last exported on …" hint underneath. Tooltip explains that re-export produces a fresh bundle ID.
+- New `stampHrisExport()` writes `hrisSync.lastExportedAt` (server timestamp), `hrisSync.lastExportedBy`, `hrisSync.method = 'manual-bundle'` via field-path `updateDoc` so concurrent approval transitions can't trample each other (each writer touches a disjoint subobject). Stamp + audit run AFTER the user has the file in hand so a stamp-write failure can't make them think the export didn't happen.
+- 8 new tests in [`hrisBundle.test.ts`](src/lib/__tests__/hrisBundle.test.ts) round-trip the bundle through JSZip's loader: zip is non-empty, the documented six files exist, manifest carries the full approval lineage with names + positions, schedule.csv has the right header + per-employee rows, leaves.csv flattens painted AL ranges with the correct source, compliance.json reports correct counts + score, CSV escaping survives commas + quotes.
+
+**Compatibility**
+- All 175 tests pass (15 new — 10 diff + 8 bundle, minus 3 absorbed/renamed). `tsc --noEmit` clean. Secret-leak audit clean (no AIzaSy keys, JSONs, .env, PEM markers).
+- No Firestore schema migration. The diff view reads existing `/snapshots/{ts}` docs; the export reads existing `approval` + `schedule` data. The HRIS stamp adds a `hrisSync` subobject that's optional everywhere it's read.
+- No Firestore index change. The snapshot query (`orderBy(__name__, 'desc')` + `limit(1)`) uses the auto-created `__name__` index.
+- New dependency: `jszip ^3.10.1`. Tree-shaken into a separate dynamic import so it only loads on first export.
+
 ## v5.0.2 — 2026-05-03
 
 **Patch follow-up to v5.0.0.** End-to-end testing surfaced four issues at the boundary between the v5.0 approval workflow and the multi-user identity it depends on. Fixes are deliberately conservative — same state machine, same Firestore doc shape, same modals. What changed is **who can do what**, **how actions are attributed**, and **what the user sees when something refuses to run**.
