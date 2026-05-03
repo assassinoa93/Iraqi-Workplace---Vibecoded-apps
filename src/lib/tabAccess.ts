@@ -86,9 +86,14 @@ export const TAB_DEFAULTS_BY_ROLE: Record<Role, Record<string, TabAccess>> = {
     // v5.1.1 — supervisors keep read access to the holiday calendar so
     // they can plan around it, but can't edit it (governance config).
     holidays: 'read',
+    // v5.1.3 — Variables tab visible (read) so supervisors can edit the
+    // operating-window subsection (default open/close + per-day overrides).
+    // The tab itself stays read-only for governance fields; the operating-
+    // window subsection has its own write-gate inside VariablesTab.
+    variables: 'read',
     settings: 'full',
-    // Supervisors don't see payroll/workforce/reports/variables/audit
-    // by default — super-admin can grant per-user.
+    // Supervisors don't see payroll/workforce/reports/audit by default —
+    // super-admin can grant per-user.
   },
 };
 

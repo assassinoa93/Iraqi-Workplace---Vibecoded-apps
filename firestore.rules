@@ -28,11 +28,31 @@ service cloud.firestore {
       allow read:  if isAdmin() || hasCompany(companyId);
       allow write: if isSuper();
 
+      // v5.1.3 — operating-window fields manager + supervisor are allowed
+      // to mutate inside the config doc. Governance fields (Iraqi Labor
+      // Law caps, pay rates, weekend policy, Ramadan, hazardous, driver)
+      // stay admin-only. Defined as a constant so the rule below stays
+      // readable and so adding / removing operating-window fields in the
+      // future is a single-line change.
+      function operatingWindowKeys() {
+        return ['shopOpeningTime', 'shopClosingTime', 'operatingHoursByDayOfWeek'];
+      }
+      function configWriteAllowed() {
+        return isAdmin()
+          || (
+            (isManager() || isSupervisor())
+            && resource != null
+            && request.resource.data.value.diff(resource.data.value).affectedKeys().hasOnly(operatingWindowKeys())
+          );
+      }
+
       match /{collection}/{docId} {
         allow read: if hasCompany(companyId);
-        // Supervisors edit operational data; only admins+ can edit config.
+        // Supervisors edit operational data; config is governance —
+        // admin+ can write any field, manager + supervisor can update
+        // operating-window fields only (see configWriteAllowed above).
         allow write: if hasCompany(companyId) &&
-                       (collection != 'config' || isAdmin());
+                       (collection != 'config' || configWriteAllowed());
       }
 
       match /schedules/{month} {

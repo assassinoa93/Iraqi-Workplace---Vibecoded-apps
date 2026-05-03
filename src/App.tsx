@@ -3450,6 +3450,12 @@ export default function App() {
                 config={config}
                 setConfig={setConfig}
                 readOnly={!tabWritable('variables', role, tabPerms)}
+                // v5.1.3 — operating window (default open/close + per-day
+                // overrides) is OPERATIONAL config that manager + supervisor
+                // own. Admin remains read-only here (consistent with
+                // monitor-only on cells). Offline mode (role===null) is
+                // single-user and fully editable.
+                operatingWindowReadOnly={role === 'admin'}
               />
             )}
 

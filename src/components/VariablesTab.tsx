@@ -18,10 +18,18 @@ const DOW_KEY: Record<DayOfWeek, string> = {
 interface Props {
   config: Config;
   setConfig: React.Dispatch<React.SetStateAction<Config>>;
-  // Online mode: admins can see Iraqi Labor Law thresholds but cannot edit them.
-  // Only super_admin can change these. Offline / single-user mode leaves this
+  // Online mode: governance config (Iraqi Labor Law caps, pay rates, driver
+  // & hazardous limits) is super-admin-only edit because it's the rules
+  // every other role plays under. Offline / single-user mode leaves this
   // undefined → falsy → fully editable.
   readOnly?: boolean;
+  // v5.1.3 — operating window (default open/close + per-day overrides)
+  // is OPERATIONAL config, not governance. Manager + supervisor own
+  // day-to-day operations and need to be able to set when the business
+  // is open. Admin is still locked out (monitor-only on operations,
+  // consistent with cell-edit gate). Defaults to `readOnly` if not
+  // supplied so legacy callers keep their previous behaviour.
+  operatingWindowReadOnly?: boolean;
 }
 
 // CapDef carries i18n keys (resolved at render time so language toggles update
@@ -124,13 +132,17 @@ function Section({ title, subtitle, icon: Icon, iconBg, iconText, caps, config, 
   );
 }
 
-export function VariablesTab({ config, setConfig: rawSetConfig, readOnly }: Props) {
+export function VariablesTab({ config, setConfig: rawSetConfig, readOnly, operatingWindowReadOnly }: Props) {
   const { t } = useI18n();
-  // When read-only, swallow any setConfig calls before they reach the parent
-  // so accidental changes from controls that don't honour `disabled` (e.g.
-  // raw <button> toggles below) are still no-ops at the data layer. We
-  // shadow `setConfig` locally so every onChange handler in this function
-  // picks up the guarded version automatically.
+  // v5.1.3 — operating window has its own write-gate (manager + supervisor
+  // own operational hours). When the prop is omitted, fall back to
+  // `readOnly` so callers from before v5.1.3 don't accidentally widen
+  // editing rights.
+  const opsReadOnly = operatingWindowReadOnly ?? readOnly;
+  // Governance setter: swallowed when `readOnly` so cap / pay / hazardous /
+  // driver controls that don't honour `disabled` are no-ops at the data
+  // layer. The operating-window section uses the raw setter (gated by
+  // `opsReadOnly` on each control instead).
   const setConfig: typeof rawSetConfig = readOnly ? (() => undefined) : rawSetConfig;
   return (
     <div className="space-y-8 max-w-5xl">
@@ -145,9 +157,11 @@ export function VariablesTab({ config, setConfig: rawSetConfig, readOnly }: Prop
         <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-xs font-bold text-amber-900 uppercase tracking-widest">Read-only</p>
+            <p className="text-xs font-bold text-amber-900 uppercase tracking-widest">Governance — Read-only</p>
             <p className="text-[11px] text-amber-800 leading-relaxed mt-1">
-              These Iraqi Labor Law thresholds can only be edited by the super-admin. You can review the configured values here.
+              {opsReadOnly
+                ? 'Iraqi Labor Law thresholds and operating-window hours can only be edited by the super-admin. You can review the configured values here.'
+                : 'Iraqi Labor Law thresholds can only be edited by the super-admin. The operating-window section below is editable — manager and supervisor own day-to-day operational hours.'}
             </p>
           </div>
         </div>
@@ -226,15 +240,15 @@ export function VariablesTab({ config, setConfig: rawSetConfig, readOnly }: Prop
             label={t('variables.operatingWindow.defaultOpen')}
             type="time"
             value={config.shopOpeningTime}
-            onChange={v => setConfig(prev => ({ ...prev, shopOpeningTime: v }))}
-            disabled={readOnly}
+            onChange={v => rawSetConfig(prev => ({ ...prev, shopOpeningTime: v }))}
+            disabled={opsReadOnly}
           />
           <SettingField
             label={t('variables.operatingWindow.defaultClose')}
             type="time"
             value={config.shopClosingTime}
-            onChange={v => setConfig(prev => ({ ...prev, shopClosingTime: v }))}
-            disabled={readOnly}
+            onChange={v => rawSetConfig(prev => ({ ...prev, shopClosingTime: v }))}
+            disabled={opsReadOnly}
           />
         </div>
         <div className="p-5 pt-0 space-y-2">
@@ -247,7 +261,7 @@ export function VariablesTab({ config, setConfig: rawSetConfig, readOnly }: Prop
               const open = override?.open ?? config.shopOpeningTime;
               const close = override?.close ?? config.shopClosingTime;
               const setOverride = (next: { open: string; close: string } | undefined) => {
-                setConfig(prev => {
+                rawSetConfig(prev => {
                   const map = { ...(prev.operatingHoursByDayOfWeek || {}) };
                   if (next) map[dow] = next;
                   else delete map[dow];
@@ -264,14 +278,14 @@ export function VariablesTab({ config, setConfig: rawSetConfig, readOnly }: Prop
                     }}
                     tone="indigo"
                     size="sm"
-                    disabled={readOnly}
+                    disabled={opsReadOnly}
                     aria-label={`Override hours for ${t(DOW_KEY[dow])}`}
                   />
                   <span className="text-[11px] font-bold text-slate-700 uppercase tracking-widest min-w-[80px]">{t(DOW_KEY[dow])}</span>
                   <input
                     type="time"
                     value={open}
-                    disabled={!enabled || readOnly}
+                    disabled={!enabled || opsReadOnly}
                     onChange={e => setOverride({ open: e.target.value, close })}
                     className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono disabled:opacity-40"
                   />
@@ -279,7 +293,7 @@ export function VariablesTab({ config, setConfig: rawSetConfig, readOnly }: Prop
                   <input
                     type="time"
                     value={close}
-                    disabled={!enabled || readOnly}
+                    disabled={!enabled || opsReadOnly}
                     onChange={e => setOverride({ open, close: e.target.value })}
                     className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono disabled:opacity-40"
                   />

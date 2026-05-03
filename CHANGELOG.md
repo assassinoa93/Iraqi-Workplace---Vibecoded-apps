@@ -2,6 +2,26 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v5.1.3 — 2026-05-03
+
+**Patch follow-up to v5.1.2.** v5.1.1 made the Variables tab super-admin-only edit to lock down governance config. End-to-end testing surfaced one carve-out: the **operating-window subsection** (default open / close + per-day overrides) is operational, not governance — manager and supervisor own day-to-day business hours. v5.1.3 splits the Variables tab into two write-gates: governance stays super-admin-only; operating window is editable by supervisor + manager + super-admin. Admin remains read-only on operating window (consistent with the v5.1.1 monitor-only-on-operations stance).
+
+**Renderer-side gate** ([`VariablesTab.tsx`](src/components/VariablesTab.tsx), [`App.tsx`](src/App.tsx))
+- New `operatingWindowReadOnly` prop on `VariablesTab`. When falsy, the open/close time inputs + per-day override row controls accept edits even if the rest of the tab is `readOnly`.
+- App.tsx passes `operatingWindowReadOnly={role === 'admin'}` so admin alone is locked out — every other authenticated role (super_admin, manager, supervisor) can edit the operating window.
+- Read-only banner copy now distinguishes between "everything is read-only" (admin) and "governance is read-only but operating window is editable below" (manager + supervisor).
+- Supervisor's tab-access defaults gain `variables: 'read'` so the tab actually appears in the sidebar; the per-section gates inside the tab handle the editability.
+
+**Firestore rule update** ([`firestore.rules`](firestore.rules))
+- Adds an `operatingWindowKeys()` function listing the three fields manager + supervisor are allowed to mutate inside the config doc: `shopOpeningTime`, `shopClosingTime`, `operatingHoursByDayOfWeek`.
+- New `configWriteAllowed()` helper: super-admin + admin pass through unconditionally; manager + supervisor pass only when `request.resource.data.value.diff(resource.data.value).affectedKeys().hasOnly(operatingWindowKeys())`. Governance fields stay admin-only because any write touching them fails `hasOnly()`.
+- Rule deploy required: `firebase deploy --only firestore:rules`. Without the deploy, manager + supervisor edits will hit `permission-denied` on the Firestore write even though the renderer accepts the input.
+
+**Compatibility**
+- All 179 tests pass. `tsc --noEmit` clean. Secret-leak audit clean.
+- No data migration. The Config doc shape is unchanged; only the rule that gates writes to it gets more granular.
+- No Firestore index change.
+
 ## v5.1.2 — 2026-05-03
 
 **Hotfix on top of v5.1.1.** Real-world repro of "the dashboard force-pulls me back to April": active-month navigation (year / month / daysInMonth) was being persisted in the per-company Firestore Config doc, which is admin-write-only per the security rules. When a supervisor or manager clicked next-month, their write was rejected silently, then the config listener re-fired with the server-side stale month and reset their visible month back. v5.1.2 separates UI navigation from governance config in both directions.
