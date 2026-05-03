@@ -2,6 +2,26 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v5.1.5 — 2026-05-03
+
+**Patch follow-up to v5.1.4.** Dependency-vulnerability triage. Production audit went from 14 → 11 vulnerabilities by retiring the DOMPurify XSS chain via `jspdf` upgrade. The remaining 11 are in the firebase-admin transitive dep tree and are not exploitable in our use; rationale documented below for future audits.
+
+**jspdf 2.5 → 4.2 + jspdf-autotable 3.8 → 5.0** ([`package.json`](package.json))
+- Kills the entire DOMPurify XSS / prototype-pollution / FORBID_TAGS-bypass chain (7 advisories) that fed through `jspdf > dompurify`.
+- Our usage in [`pdfReport.ts`](src/lib/pdfReport.ts) and [`WorkforcePlanningTab.tsx`](src/tabs/WorkforcePlanningTab.tsx) only feeds structured table data through `autoTable` — no user-controlled HTML — so the XSS vectors weren't actually reachable in our code path. Upgrading is hardening rather than a fix for an exploit, but it removes the audit noise.
+- API stayed compatible: `import jsPDF from 'jspdf'` (default), `const { jsPDF } = await import('jspdf')` (dynamic), `import autoTable from 'jspdf-autotable'` (default v5 ESM) all work without code changes. `tsc --noEmit` clean, all 179 tests pass.
+
+**Remaining 11 production-tree vulnerabilities — accepted, rationale**
+
+These are all in the `firebase-admin` transitive dep chain. They cannot be fixed without downgrading `firebase-admin` to v10 (current is v13), which would lose the Auth + Firestore + SecurityRules features the app depends on. The `npm audit fix --force` recommendation would silently break the app.
+
+| Advisory | Package | Where | Why not exploitable in our use |
+|---|---|---|---|
+| GHSA-vpq2-c234-7xj6 | `@tootallnate/once` | `firebase-admin > @google-cloud/storage > teeny-request > http-proxy-agent` | Incorrect control-flow scoping in proxy-agent. We do not configure HTTP proxies for the Admin SDK — service-account → Firestore traffic goes direct. No untrusted input reaches the proxy code path. |
+| GHSA-w5hq-g745-h8pq | `uuid` (v3/v5/v6) | `firebase-admin`, `gaxios`, `google-gax`, `teeny-request`, `exceljs` (transitive) | Missing buffer bounds check **only** when callers pass a custom `buf` parameter to v3/v5/v6 generators. None of our consumers do — they call the simple `uuid.v4()` form which is unaffected. We never call `uuid` directly. |
+
+When `firebase-admin` upstream releases a version that bumps these transitive deps, we'll re-audit and pick it up. Tracked here so future triage doesn't have to re-derive the rationale.
+
 ## v5.1.4 — 2026-05-03
 
 **Patch follow-up to v5.1.3.** v5.1.3 changed `firestore.rules` to allow manager + supervisor to edit the operating-window subsection of the Variables tab — but the rule change only takes effect after `firebase deploy --only firestore:rules` runs against the project. Anyone installing the app on a fresh Firebase project would either have no rules (locked-down default) or stale rules from earlier installs. v5.1.4 wires the deploy into the setup flow so fresh installs land with a working rule set out of the box, plus adds an in-app re-sync button for ongoing rule updates.
