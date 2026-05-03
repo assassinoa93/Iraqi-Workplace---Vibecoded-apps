@@ -438,6 +438,10 @@ function StepAccount({ onComplete, onBack, setError }: {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [copied, setCopied] = useState(false);
+  // v5.1.4 — outcome of the auto-rules-deploy that runs at the end of
+  // bootstrapSuperAdminAccount. null = bootstrap not yet run, or the
+  // server didn't return a rulesDeploy field (older bridge build).
+  const [rulesDeployStatus, setRulesDeployStatus] = useState<adminApi.RulesDeployResult | null>(null);
 
   const handleCopyPassword = async () => {
     try {
@@ -463,11 +467,18 @@ function StepAccount({ onComplete, onBack, setError }: {
     setBusy(true);
     setError(null);
     try {
-      await adminApi.bootstrapSuperAdminAccount({
+      const res = await adminApi.bootstrapSuperAdminAccount({
         email: email.trim(),
         password,
         displayName: displayName.trim() || undefined,
       });
+      // v5.1.4 — capture the rules-deploy outcome from the bootstrap so
+      // the wizard can show whether the Firestore rules landed cleanly.
+      // A failed deploy isn't fatal (account is still created, super-
+      // admin can sync from Database panel later) but the user should
+      // know about it instead of finding out later when manager + super-
+      // visor edits start hitting permission-denied.
+      setRulesDeployStatus(res.rulesDeploy ?? null);
       setDone(true);
     } catch (e: unknown) {
       const err = e as { code?: string; message?: string };
@@ -484,19 +495,55 @@ function StepAccount({ onComplete, onBack, setError }: {
       </p>
 
       {done ? (
-        <div className="flex items-start gap-3 p-4 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/30 rounded-xl">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-300 mt-0.5 shrink-0" />
-          <div className="space-y-1">
-            <p className="text-[11px] text-emerald-700 dark:text-emerald-200 font-bold">
-              Account created and super-admin role granted
-            </p>
-            <p className="text-[10px] text-emerald-700 dark:text-emerald-200/80 leading-relaxed">
-              Email: <span className="font-mono">{email}</span>
-            </p>
-            <p className="text-[10px] text-emerald-700 dark:text-emerald-200/80 leading-relaxed">
-              Click <strong>Finish</strong> to sign in.
-            </p>
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 p-4 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/30 rounded-xl">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-300 mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-200 font-bold">
+                Account created and super-admin role granted
+              </p>
+              <p className="text-[10px] text-emerald-700 dark:text-emerald-200/80 leading-relaxed">
+                Email: <span className="font-mono">{email}</span>
+              </p>
+              <p className="text-[10px] text-emerald-700 dark:text-emerald-200/80 leading-relaxed">
+                Click <strong>Finish</strong> to sign in.
+              </p>
+            </div>
           </div>
+
+          {/* v5.1.4 — surface the rules-deploy outcome that ran as part of
+              the bootstrap. Success: confirm the rules landed. Failure:
+              tell the user the account is fine but they need to retry
+              the rules sync from Super Admin → Database after sign-in. */}
+          {rulesDeployStatus && !rulesDeployStatus.error && (
+            <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 rounded-xl">
+              <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-300 mt-0.5 shrink-0" />
+              <div className="space-y-1 min-w-0">
+                <p className="text-[11px] text-blue-700 dark:text-blue-200 font-bold">
+                  Firestore security rules deployed
+                </p>
+                <p className="text-[10px] text-blue-700 dark:text-blue-200/80 leading-relaxed">
+                  Ruleset <span className="font-mono">{rulesDeployStatus.name}</span> is now active on this project. Manager + supervisor + admin roles will work as expected on first sign-in.
+                </p>
+              </div>
+            </div>
+          )}
+          {rulesDeployStatus && rulesDeployStatus.error && (
+            <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-300 mt-0.5 shrink-0" />
+              <div className="space-y-1 min-w-0">
+                <p className="text-[11px] text-amber-800 dark:text-amber-200 font-bold">
+                  Account created — but rules deploy failed
+                </p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-200/80 leading-relaxed">
+                  {rulesDeployStatus.error.message}
+                </p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-200/80 leading-relaxed">
+                  After signing in, open <strong>Super Admin → Database → Sync rules</strong> to retry. Without the deploy, non-admin users won't be able to write to Firestore.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

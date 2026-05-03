@@ -14,9 +14,9 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Database, AlertCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { Database, AlertCircle, RefreshCw, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import * as adminApi from '../../lib/adminApi';
-import type { AuditStats } from '../../lib/adminApi';
+import type { AuditStats, RulesDeployResult } from '../../lib/adminApi';
 import { cn } from '../../lib/utils';
 import { useConfirm } from '../ConfirmModal';
 
@@ -32,6 +32,12 @@ export function DatabasePanel() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [purging, setPurging] = useState<number | null>(null); // days threshold
+  // v5.1.4 — manual rules-deploy state. The auto-deploy at bootstrap
+  // covers the first-time path; this re-sync covers app upgrades that
+  // change the bundled rules (e.g. v5.1.3 added the operating-window
+  // carve-out which couldn't take effect without a fresh deploy).
+  const [deployingRules, setDeployingRules] = useState(false);
+  const [lastRulesDeploy, setLastRulesDeploy] = useState<RulesDeployResult | null>(null);
   const { confirm, slot: confirmSlot } = useConfirm();
 
   const refresh = async () => {
@@ -50,6 +56,29 @@ export function DatabasePanel() {
   };
 
   useEffect(() => { void refresh(); }, []);
+
+  const handleDeployRules = async () => {
+    setError(null);
+    setInfo(null);
+    setDeployingRules(true);
+    try {
+      const res = await adminApi.deployFirestoreRules();
+      setLastRulesDeploy(res);
+      setInfo(
+        `Security rules deployed. Active ruleset: ${res.name}. Created at ` +
+        `${new Date(res.createTime).toLocaleString()} (${res.bytes} bytes).`
+      );
+    } catch (e: unknown) {
+      const err = e as { code?: string; message?: string };
+      setError(
+        err.code === 'security-rules/internal' || /permission/i.test(err.message ?? '')
+          ? `Rules deploy failed: ${err.message}. Check that the linked service account has the Firebase Rules Admin role in Cloud Console → IAM & Admin → IAM.`
+          : err.message ?? 'Rules deploy failed'
+      );
+    } finally {
+      setDeployingRules(false);
+    }
+  };
 
   const handlePurge = async (days: number) => {
     const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -108,6 +137,40 @@ export function DatabasePanel() {
           <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
           Refresh
         </button>
+      </div>
+
+      {/* v5.1.4 — Firestore rules sync. The bundled firestore.rules ships
+          with each release; this button re-deploys it to the linked
+          project. Auto-runs on first super-admin bootstrap, so most
+          users only need it after upgrading the app to a release that
+          changed the rules (e.g. v5.1.3's operating-window carve-out). */}
+      <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl">
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-300 mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-slate-800 dark:text-slate-100">Firestore security rules</p>
+            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed mt-1">
+              Sync the bundled <code className="font-mono">firestore.rules</code> to this project. Run this after upgrading the app if the release notes mention a rules change — without the sync, the new rule paths won't take effect even though the renderer expects them.
+            </p>
+            {lastRulesDeploy && !lastRulesDeploy.error && (
+              <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-mono mt-2 truncate" title={lastRulesDeploy.name}>
+                Last deploy: ruleset {lastRulesDeploy.name} ({lastRulesDeploy.bytes} bytes)
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleDeployRules}
+            disabled={deployingRules}
+            className={cn(
+              'apple-press px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 transition-colors shrink-0',
+              'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600',
+              deployingRules && 'opacity-60 cursor-wait',
+            )}
+          >
+            {deployingRules ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+            {deployingRules ? 'Deploying…' : 'Sync rules'}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">

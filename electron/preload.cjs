@@ -41,5 +41,9 @@ contextBridge.exposeInMainWorld('adminApi', {
   purgeAuditOlderThan: (projectId, idToken, ts) => call('admin:purgeAuditOlderThan', { projectId, idToken, ts }),
   auditStats: (projectId, idToken) => call('admin:auditStats', { projectId, idToken }),
   quotaUsage: (projectId, idToken, force) => call('admin:quotaUsage', { projectId, idToken, force }),
+  // v5.1.4 — manual deploy of the bundled firestore.rules. Auto-runs at
+  // the end of bootstrapSuperAdminAccount; this exposes the path for
+  // ongoing re-syncs after app upgrades.
+  deployFirestoreRules: (projectId, idToken) => call('admin:deployFirestoreRules', { projectId, idToken }),
   wipeLocalSecrets: () => call('admin:wipeLocalSecrets'),
 });

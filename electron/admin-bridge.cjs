@@ -228,6 +228,54 @@ function generateTempPassword() {
   return out;
 }
 
+// v5.1.4 — Bundled `firestore.rules` location. The file is shipped with
+// the installer (see package.json `build.files`); in dev mode it's at
+// the repo root. `app.getAppPath()` resolves to the app's source-or-
+// resources path in both environments.
+function bundledRulesPath() {
+  return path.join(app.getAppPath(), 'firestore.rules');
+}
+
+/**
+ * v5.1.4 — Deploy the bundled Firestore security rules to a project via
+ * the firebase-admin SecurityRules API. Called from two paths:
+ *   1. bootstrapSuperAdminAccount — auto-deploys rules at the end of the
+ *      first-time setup wizard, so a fresh install lands with a working
+ *      rule set. Failure is logged but doesn't fail the bootstrap (the
+ *      super-admin can manually retry via Super Admin → Database).
+ *   2. admin:deployFirestoreRules — manual re-sync, super-admin gated.
+ *      Used after upgrading the app to push the latest bundled rules
+ *      (e.g. v5.1.3 added the operating-window carve-out and required a
+ *      separate deploy).
+ *
+ * Returns a small descriptor the renderer can show ("deployed at X,
+ * ruleset name Y") so the user has confirmation of what landed.
+ *
+ * Throws when the rules file is missing or the SDK call fails. Caller
+ * decides whether the throw is fatal.
+ */
+async function _deployRulesToProject(projectId) {
+  const rulesPath = bundledRulesPath();
+  if (!fs.existsSync(rulesPath)) {
+    const err = new Error(`Bundled firestore.rules not found at ${rulesPath}`);
+    err.code = 'RULES_FILE_MISSING';
+    throw err;
+  }
+  const source = fs.readFileSync(rulesPath, 'utf8');
+  const adminApp = adminApps.get(projectId);
+  if (!adminApp) {
+    const err = new Error(`No admin app loaded for project ${projectId}`);
+    err.code = 'NO_ADMIN_APP';
+    throw err;
+  }
+  const ruleset = await adminApp.securityRules().releaseFirestoreRulesetFromSource(source);
+  return {
+    name: ruleset.name,
+    createTime: ruleset.createTime,
+    bytes: source.length,
+  };
+}
+
 function registerAdminIpc() {
   // ── Linking ────────────────────────────────────────────────────────────
 
@@ -374,7 +422,28 @@ function registerAdminIpc() {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
-    return { uid, email, role: 'super_admin' };
+
+    // v5.1.4 — auto-deploy the bundled Firestore security rules at the
+    // end of the bootstrap. Without this, a fresh install would have
+    // either no rules (locked-down default) or stale rules from
+    // whatever the user manually deployed earlier; either way the app
+    // wouldn't fully work for non-super_admin roles. Failure is non-
+    // fatal: super-admin can re-run from Super Admin → Database, and
+    // the response carries the rules-deploy outcome so the wizard can
+    // show a clear status.
+    let rulesDeploy = null;
+    try {
+      rulesDeploy = await _deployRulesToProject(projectId);
+    } catch (rulesErr) {
+      console.error('[admin-bridge] bootstrap rules deploy failed (non-fatal):', rulesErr);
+      rulesDeploy = {
+        error: {
+          code: (rulesErr && rulesErr.code) || 'UNKNOWN',
+          message: (rulesErr && rulesErr.message) || String(rulesErr),
+        },
+      };
+    }
+    return { uid, email, role: 'super_admin', rulesDeploy };
   });
 
   safeHandle('admin:bootstrapFirstSuperAdmin', async ({ projectId, uid } = {}) => {
@@ -607,6 +676,18 @@ function registerAdminIpc() {
     await adminApp.auth().deleteUser(uid);
     try { await adminApp.firestore().collection('users').doc(uid).delete(); } catch { /* non-fatal */ }
     return { uid, deleted: true };
+  });
+
+  // ── Firestore rules deploy (v5.1.4) ────────────────────────────────────
+  //
+  // Manual re-sync. Reads the bundled firestore.rules and pushes it to the
+  // active project. Idempotent: re-running with unchanged rules creates a
+  // new ruleset (same content) and releases it. Useful after upgrading
+  // the app — for example, v5.1.3 added the operating-window carve-out
+  // and required a separate deploy before non-admin edits would persist.
+  safeHandle('admin:deployFirestoreRules', async ({ projectId, idToken } = {}) => {
+    await requireSuperAdmin(projectId, idToken);
+    return _deployRulesToProject(projectId);
   });
 
   // ── Database cleanup ───────────────────────────────────────────────────

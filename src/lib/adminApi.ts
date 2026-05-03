@@ -95,11 +95,25 @@ export interface SetUserRolePayload {
   tabPerms?: TabPerms | null;
 }
 
+// v5.1.4 — outcome of a Firestore rules deploy. The success branch carries
+// the new ruleset name + creation timestamp + bundle size. The bootstrap
+// path returns either the success branch OR an `error` branch (so a
+// rules-deploy failure during first-time setup is still recoverable).
+export interface RulesDeployResult {
+  name: string;
+  createTime: string;
+  bytes: number;
+  // Only set on the bootstrap path when the deploy itself failed but the
+  // super-admin account was created successfully. The renderer surfaces
+  // a "your super-admin is set up but rules need a manual sync" notice.
+  error?: { code: string; message: string };
+}
+
 interface AdminApi {
   isLinked(projectId: string | null): Promise<{ linked: boolean; path: string | null }>;
   linkServiceAccount(projectId: string | null): Promise<{ path: string; projectId: string }>;
   bootstrapFirstSuperAdmin(projectId: string, uid: string): Promise<{ uid: string; email: string | null; role: 'super_admin' }>;
-  bootstrapSuperAdminAccount(projectId: string, payload: { email: string; password: string; displayName?: string }): Promise<{ uid: string; email: string; role: 'super_admin' }>;
+  bootstrapSuperAdminAccount(projectId: string, payload: { email: string; password: string; displayName?: string }): Promise<{ uid: string; email: string; role: 'super_admin'; rulesDeploy: RulesDeployResult | null }>;
   listUsers(projectId: string, idToken: string): Promise<AdminUser[]>;
   createUser(projectId: string, idToken: string, payload: CreateUserPayload): Promise<{ uid: string; email: string | null; role: Role; companies: string[]; tabPerms: TabPerms | null }>;
   setUserRole(projectId: string, idToken: string, payload: SetUserRolePayload): Promise<{ uid: string; role: Role; companies: string[]; tabPerms: TabPerms | null }>;
@@ -110,6 +124,10 @@ interface AdminApi {
   purgeAuditOlderThan(projectId: string, idToken: string, ts: number): Promise<{ deleted: number }>;
   auditStats(projectId: string, idToken: string): Promise<AuditStats>;
   quotaUsage(projectId: string, idToken: string, force?: boolean): Promise<QuotaUsage>;
+  // v5.1.4 — manual rules sync. Same source of truth as the auto-deploy
+  // that runs at bootstrap time; useful after app upgrades that change
+  // the bundled rules.
+  deployFirestoreRules(projectId: string, idToken: string): Promise<RulesDeployResult>;
   wipeLocalSecrets(): Promise<{ removed: string[] }>;
 }
 
@@ -198,6 +216,19 @@ export async function auditStats(): Promise<AuditStats> {
 }
 export async function quotaUsage(force = false): Promise<QuotaUsage> {
   return bridge().quotaUsage(activeProjectId(), await token(), force);
+}
+
+// ── Firestore rules deploy (v5.1.4) ──────────────────────────────────────
+
+/**
+ * Push the bundled `firestore.rules` to the active Firebase project.
+ * The bootstrap path runs this automatically on first super-admin
+ * creation; this wrapper exists for ongoing re-syncs after the app is
+ * upgraded with new bundled rules (e.g. v5.1.3 added the operating-
+ * window carve-out and required a separate deploy).
+ */
+export async function deployFirestoreRules(): Promise<RulesDeployResult> {
+  return bridge().deployFirestoreRules(activeProjectId(), await token());
 }
 
 // ── Local-secrets wipe (factory reset) ────────────────────────────────────

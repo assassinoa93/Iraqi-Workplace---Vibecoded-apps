@@ -2,6 +2,29 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v5.1.4 — 2026-05-03
+
+**Patch follow-up to v5.1.3.** v5.1.3 changed `firestore.rules` to allow manager + supervisor to edit the operating-window subsection of the Variables tab — but the rule change only takes effect after `firebase deploy --only firestore:rules` runs against the project. Anyone installing the app on a fresh Firebase project would either have no rules (locked-down default) or stale rules from earlier installs. v5.1.4 wires the deploy into the setup flow so fresh installs land with a working rule set out of the box, plus adds an in-app re-sync button for ongoing rule updates.
+
+**Bundled rules + auto-deploy on bootstrap** ([`package.json`](package.json), [`admin-bridge.cjs`](electron/admin-bridge.cjs), [`SuperAdminWizard.tsx`](src/components/Onboarding/SuperAdminWizard.tsx))
+- `electron-builder` now includes `firestore.rules` in the installer (`build.files`). The main process resolves it via `app.getAppPath()` so dev mode (repo root) and packaged mode (resources path) both work.
+- New `_deployRulesToProject(projectId)` helper in admin-bridge reads the bundled file and calls `admin.securityRules().releaseFirestoreRulesetFromSource(source)` — one round-trip that creates a new ruleset AND releases it as the active Firestore ruleset.
+- `bootstrapSuperAdminAccount` now auto-deploys at the end of the first-time setup wizard. Failure is non-fatal — the super-admin account is still created and the user gets an explicit "rules deploy failed, retry from Super Admin → Database" notice. Success surfaces the new ruleset name in the wizard's confirmation card.
+
+**Manual re-sync from Super Admin → Database** ([`DatabasePanel.tsx`](src/components/SuperAdmin/DatabasePanel.tsx))
+- New "Sync rules" button pushes the bundled rules to the active project. Use case: app upgraded with new bundled rules (e.g. v5.1.3 added the operating-window carve-out). Without the sync, manager / supervisor edits hit `permission-denied` even though the renderer accepts the input.
+- Surfaces the new ruleset name + create-time + bytes after a successful deploy. Failures call out the most common cause (service account missing the Firebase Rules Admin role) with a deep-link to Cloud Console IAM.
+- New `admin:deployFirestoreRules({projectId, idToken})` IPC handler exposes `_deployRulesToProject` to authenticated super-admins. Same code path as the bootstrap auto-deploy; both produce identical rulesets.
+
+**CLI script for scripted environments** ([`scripts/deploy-firestore-rules.cjs`](scripts/deploy-firestore-rules.cjs))
+- `npm run deploy-rules` runs the same deploy from a Node script using the locally-stored service-account JSON. Useful for CI / CLI-only super-admins / cases where you don't want to launch the Electron app just to push a rules update.
+- Same source of truth (`firestore.rules`) as the in-app paths, so all three deploy methods produce identical rulesets.
+
+**Compatibility**
+- All 179 tests pass. `tsc --noEmit` clean. Secret-leak audit clean.
+- Existing installs unaffected — the auto-deploy runs only at first super-admin bootstrap. Existing super-admins who upgrade the app should run **Super Admin → Database → Sync rules** once after the upgrade if the release notes mention a rules change.
+- New permission required: the linked service account needs `roles/firebaserules.admin` (or the broader Firebase Admin SDK service-account role, which includes it). Default Firebase setup grants this.
+
 ## v5.1.3 — 2026-05-03
 
 **Patch follow-up to v5.1.2.** v5.1.1 made the Variables tab super-admin-only edit to lock down governance config. End-to-end testing surfaced one carve-out: the **operating-window subsection** (default open / close + per-day overrides) is operational, not governance — manager and supervisor own day-to-day business hours. v5.1.3 splits the Variables tab into two write-gates: governance stays super-admin-only; operating window is editable by supervisor + manager + super-admin. Admin remains read-only on operating window (consistent with the v5.1.1 monitor-only-on-operations stance).
