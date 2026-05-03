@@ -21,6 +21,7 @@ import { Inbox, ShieldCheck, ArrowRight } from 'lucide-react';
 import type { ApprovalQueueRow } from '../../lib/useApprovalQueue';
 import type { Company } from '../../types';
 import { cn } from '../../lib/utils';
+import { formatApprovalActor } from '../../lib/scheduleApproval';
 
 interface Props {
   kind: 'awaiting-validation' | 'awaiting-finalization';
@@ -67,7 +68,9 @@ export function PendingApprovalsCard({ kind, rows, companies, onJump }: Props) {
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
           {rows.map((r) => {
             const stamp = isValidation ? r.submittedAt : r.lockedAt;
-            const stampBy = isValidation ? r.submittedBy : r.lockedBy;
+            const stampBy = isValidation
+              ? formatApprovalActor(r.submittedByName, r.submittedByPosition, r.submittedBy)
+              : formatApprovalActor(r.lockedByName, r.lockedByPosition, r.lockedBy);
             const stampLabel = stamp ? format(new Date(stamp), 'yyyy-MM-dd HH:mm') : '—';
             const monthLabel = (() => {
               const m = /^(\d{4})-(\d{2})$/.exec(r.yyyymm);
@@ -82,7 +85,7 @@ export function PendingApprovalsCard({ kind, rows, companies, onJump }: Props) {
                   </p>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
                     {isValidation ? 'Submitted' : 'Locked'} by{' '}
-                    <span className="text-slate-700 dark:text-slate-200">{stampBy ?? 'unknown'}</span>
+                    <span className="text-slate-700 dark:text-slate-200">{stampBy}</span>
                     {' on '}
                     <span className="font-mono">{stampLabel}</span>
                   </p>

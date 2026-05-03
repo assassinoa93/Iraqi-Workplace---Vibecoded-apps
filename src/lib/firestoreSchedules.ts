@@ -68,6 +68,11 @@ export interface ApprovalHistoryEntry {
   ts: unknown;             // serverTimestamp at write time
   actor: string;           // uid
   actorEmail: string | null;
+  // v5.0.2 — captured from the user record at action time so the audit
+  // trail keeps a stable name + job title even if the user is later
+  // renamed or repositioned. Optional for pre-v5.0.2 history entries.
+  actorName?: string;
+  actorPosition?: string;
   role: Role;
   notes?: string;
   destinationStatus?: ApprovalStatus;  // for send-back / reopen — which state we returned to
@@ -76,17 +81,29 @@ export interface ApprovalHistoryEntry {
 export interface ApprovalBlock {
   status: ApprovalStatus;
   // Per-stage stamps (optional, populated as the workflow advances).
+  // v5.0.2 — name + position fields capture the actor's human identity
+  // (set by the super-admin on the user record) so the banner / queue
+  // can show "Mohammed Al-Rashid · Floor Manager" instead of a UID.
+  // Pre-v5.0.2 records have only the *By field; the UI degrades to email.
   submittedAt?: unknown;
   submittedBy?: string;
+  submittedByName?: string;
+  submittedByPosition?: string;
   submittedNotes?: string;
   lockedAt?: unknown;
   lockedBy?: string;
+  lockedByName?: string;
+  lockedByPosition?: string;
   lockedNotes?: string;
   savedAt?: unknown;
   savedBy?: string;
+  savedByName?: string;
+  savedByPosition?: string;
   savedNotes?: string;
   rejectedAt?: unknown;
   rejectedBy?: string;
+  rejectedByName?: string;
+  rejectedByPosition?: string;
   rejectedNotes?: string;
   rejectedFrom?: 'manager' | 'admin';   // which level sent it back
   // Append-only audit lineage. Every transition pushes one entry.
@@ -298,6 +315,11 @@ interface TransitionContext {
   yyyymm: string;
   actorUid: string;
   actorEmail: string | null;
+  // v5.0.2 — optional human-identity fields. Stamped onto the approval
+  // block alongside actorUid so the UI doesn't have to do a /users
+  // round-trip to display "who did what".
+  actorName?: string | null;
+  actorPosition?: string | null;
   role: Role;
   notes?: string;
 }
@@ -347,6 +369,8 @@ async function runApprovalTransition(
       action,
       actor: ctx.actorUid,
       actorEmail: ctx.actorEmail,
+      actorName: ctx.actorName ?? undefined,
+      actorPosition: ctx.actorPosition ?? undefined,
       role: ctx.role,
       notes: ctx.notes,
       destinationStatus: result.to,
@@ -362,6 +386,10 @@ async function runApprovalTransition(
       if (stamp) {
         update[`approval.${stamp}At`] = serverTimestamp();
         update[`approval.${stamp}By`] = ctx.actorUid;
+        // v5.0.2 — stamp the name + position alongside the UID so the UI
+        // can show a friendly attribution without a /users round-trip.
+        if (ctx.actorName) update[`approval.${stamp}ByName`] = ctx.actorName;
+        if (ctx.actorPosition) update[`approval.${stamp}ByPosition`] = ctx.actorPosition;
         if (ctx.notes) update[`approval.${stamp}Notes`] = ctx.notes;
       }
       if (action === 'send-back' && result.rejectedFrom) {
@@ -378,6 +406,8 @@ async function runApprovalTransition(
       if (stamp) {
         nestedApproval[`${stamp}At`] = serverTimestamp();
         nestedApproval[`${stamp}By`] = ctx.actorUid;
+        if (ctx.actorName) nestedApproval[`${stamp}ByName`] = ctx.actorName;
+        if (ctx.actorPosition) nestedApproval[`${stamp}ByPosition`] = ctx.actorPosition;
         if (ctx.notes) nestedApproval[`${stamp}Notes`] = ctx.notes;
       }
       if (action === 'send-back' && result.rejectedFrom) {
@@ -397,27 +427,39 @@ async function runApprovalTransition(
   return { result, capturedEntries, capturedApproval };
 }
 
+// v5.0.2 — shared actor-identity bag accepted by every transition function.
+// Pre-v5.0.2 the API was a wide positional parameter list; we now hand a
+// single object so we can extend with actorName / actorPosition without
+// breaking call sites or losing readability.
+export interface TransitionActor {
+  uid: string;
+  email: string | null;
+  role: Role;
+  name?: string | null;
+  position?: string | null;
+}
+
 /** Supervisor submits a draft (or rejected) schedule for manager review. */
 export async function submitForApproval(
   companyId: string, yyyymm: string,
-  actorUid: string, actorEmail: string | null, role: Role,
+  actor: TransitionActor,
   notes?: string,
 ): Promise<TransitionResult> {
   const { result } = await runApprovalTransition(
-    { companyId, yyyymm, actorUid, actorEmail, role, notes },
+    { companyId, yyyymm, actorUid: actor.uid, actorEmail: actor.email, actorName: actor.name, actorPosition: actor.position, role: actor.role, notes },
     'submit',
   );
   return result;
 }
 
-/** Manager (or admin/super) locks a submitted schedule. */
+/** Manager (or super-admin) locks a submitted schedule. */
 export async function lockSchedule(
   companyId: string, yyyymm: string,
-  actorUid: string, actorEmail: string | null, role: Role,
+  actor: TransitionActor,
   notes?: string,
 ): Promise<TransitionResult> {
   const { result } = await runApprovalTransition(
-    { companyId, yyyymm, actorUid, actorEmail, role, notes },
+    { companyId, yyyymm, actorUid: actor.uid, actorEmail: actor.email, actorName: actor.name, actorPosition: actor.position, role: actor.role, notes },
     'lock',
   );
   return result;
@@ -431,11 +473,11 @@ export async function lockSchedule(
  */
 export async function saveSchedule(
   companyId: string, yyyymm: string,
-  actorUid: string, actorEmail: string | null, role: Role,
+  actor: TransitionActor,
   notes?: string,
 ): Promise<TransitionResult> {
   const { result, capturedEntries, capturedApproval } = await runApprovalTransition(
-    { companyId, yyyymm, actorUid, actorEmail, role, notes },
+    { companyId, yyyymm, actorUid: actor.uid, actorEmail: actor.email, actorName: actor.name, actorPosition: actor.position, role: actor.role, notes },
     'save',
   );
   if (result.ok) {
@@ -458,14 +500,14 @@ export async function saveSchedule(
  */
 export async function sendBackToSupervisor(
   companyId: string, yyyymm: string,
-  actorUid: string, actorEmail: string | null, role: Role,
+  actor: TransitionActor,
   notes: string,
 ): Promise<TransitionResult> {
   if (!notes || !notes.trim()) {
     throw Object.assign(new Error('Notes are required when sending a schedule back.'), { code: 'NOTES_REQUIRED' });
   }
   const { result } = await runApprovalTransition(
-    { companyId, yyyymm, actorUid, actorEmail, role, notes },
+    { companyId, yyyymm, actorUid: actor.uid, actorEmail: actor.email, actorName: actor.name, actorPosition: actor.position, role: actor.role, notes },
     'send-back',
   );
   return result;
@@ -479,14 +521,14 @@ export async function sendBackToSupervisor(
  */
 export async function sendBackToManager(
   companyId: string, yyyymm: string,
-  actorUid: string, actorEmail: string | null, role: Role,
+  actor: TransitionActor,
   notes: string,
 ): Promise<TransitionResult> {
   if (!notes || !notes.trim()) {
     throw Object.assign(new Error('Notes are required when sending a schedule back.'), { code: 'NOTES_REQUIRED' });
   }
   const { result } = await runApprovalTransition(
-    { companyId, yyyymm, actorUid, actorEmail, role, notes },
+    { companyId, yyyymm, actorUid: actor.uid, actorEmail: actor.email, actorName: actor.name, actorPosition: actor.position, role: actor.role, notes },
     'send-back',
   );
   return result;
@@ -500,14 +542,14 @@ export async function sendBackToManager(
  */
 export async function reopenSchedule(
   companyId: string, yyyymm: string,
-  actorUid: string, actorEmail: string | null, role: Role,
+  actor: TransitionActor,
   notes: string,
 ): Promise<TransitionResult> {
   if (!notes || !notes.trim()) {
     throw Object.assign(new Error('Reason is required to reopen a saved schedule.'), { code: 'NOTES_REQUIRED' });
   }
   const { result } = await runApprovalTransition(
-    { companyId, yyyymm, actorUid, actorEmail, role, notes },
+    { companyId, yyyymm, actorUid: actor.uid, actorEmail: actor.email, actorName: actor.name, actorPosition: actor.position, role: actor.role, notes },
     'reopen',
   );
   return result;
@@ -563,9 +605,13 @@ export async function listPendingApprovals(
   status: 'submitted' | 'locked';
   submittedAt: number | null;
   submittedBy: string | null;
+  submittedByName: string | null;
+  submittedByPosition: string | null;
   submittedNotes: string | null;
   lockedAt: number | null;
   lockedBy: string | null;
+  lockedByName: string | null;
+  lockedByPosition: string | null;
 }>> {
   const db = await getDb();
   const { collectionGroup, query, where, getDocs } = await import('firebase/firestore');
@@ -599,9 +645,13 @@ export async function listPendingApprovals(
       status: a.status as 'submitted' | 'locked',
       submittedAt: toMs(a.submittedAt),
       submittedBy: a.submittedBy ?? null,
+      submittedByName: a.submittedByName ?? null,
+      submittedByPosition: a.submittedByPosition ?? null,
       submittedNotes: a.submittedNotes ?? null,
       lockedAt: toMs(a.lockedAt),
       lockedBy: a.lockedBy ?? null,
+      lockedByName: a.lockedByName ?? null,
+      lockedByPosition: a.lockedByPosition ?? null,
     });
   }
   return rows;

@@ -35,12 +35,6 @@ describe('isValidTransition — happy paths', () => {
     expect(r.to).toBe('locked');
   });
 
-  it('admin can lock submitted (overrides manager-only)', () => {
-    const r = isValidTransition({ from: 'submitted', action: 'lock', role: 'admin' });
-    expect(r.ok).toBe(true);
-    expect(r.to).toBe('locked');
-  });
-
   it('admin can save from locked', () => {
     const r = isValidTransition({ from: 'locked', action: 'save', role: 'admin' });
     expect(r.ok).toBe(true);
@@ -52,13 +46,6 @@ describe('isValidTransition — happy paths', () => {
     expect(r.ok).toBe(true);
     expect(r.to).toBe('rejected');
     expect(r.rejectedFrom).toBe('manager');
-  });
-
-  it('admin send-back from submitted lands in rejected with rejectedFrom=admin', () => {
-    const r = isValidTransition({ from: 'submitted', action: 'send-back', role: 'admin' });
-    expect(r.ok).toBe(true);
-    expect(r.to).toBe('rejected');
-    expect(r.rejectedFrom).toBe('admin');
   });
 
   it('admin send-back from locked lands back in submitted (one step back to manager)', () => {
@@ -92,6 +79,19 @@ describe('isValidTransition — role-based denials', () => {
 
   it('supervisor cannot lock', () => {
     const r = isValidTransition({ from: 'submitted', action: 'lock', role: 'supervisor' });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/manager/i);
+  });
+
+  // v5.0.2 — strict tier separation: admin cannot do the manager's job.
+  it('admin cannot lock submitted (manager-only — strict tier separation)', () => {
+    const r = isValidTransition({ from: 'submitted', action: 'lock', role: 'admin' });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/manager/i);
+  });
+
+  it('admin cannot send-back from submitted (manager rejects to supervisor — admin reviews from locked)', () => {
+    const r = isValidTransition({ from: 'submitted', action: 'send-back', role: 'admin' });
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/manager/i);
   });
@@ -191,15 +191,15 @@ describe('isValidTransition — exhaustive matrix sanity', () => {
         }
       }
     }
-    // Manually counted from the v5.0 transition matrix:
+    // Manually counted from the v5.0.2 strict-tier transition matrix:
     //   submit:    draft+rejected (2 states) × supervisor+super (2 roles) = 4
-    //   lock:      submitted (1) × manager+admin+super (3) = 3
+    //   lock:      submitted (1) × manager+super (2) = 2
     //   save:      locked (1) × admin+super (2) = 2
-    //   send-back: submitted (1) × manager+admin+super (3) = 3
+    //   send-back: submitted (1) × manager+super (2) = 2
     //              + locked (1) × admin+super (2) = 2
     //   reopen:    saved (1) × admin+super (2) = 2
-    //   TOTAL = 4 + 3 + 2 + 3 + 2 + 2 = 16
-    expect(validCount).toBe(16);
+    //   TOTAL = 4 + 2 + 2 + 2 + 2 + 2 = 14
+    expect(validCount).toBe(14);
   });
 
   it('every invalid result carries a human-readable reason', () => {

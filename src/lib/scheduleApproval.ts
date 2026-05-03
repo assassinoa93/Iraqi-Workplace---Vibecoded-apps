@@ -71,15 +71,21 @@ export interface TransitionResult {
 export function isValidTransition(p: TransitionParams): TransitionResult {
   const { from, action, role } = p;
 
-  // Super-admin overrides all gates — same convention as the rest of the
-  // app's role hierarchy. They still go through the transaction so the
-  // audit log records who did what.
-  const isAdminOrSuper = role === 'super_admin' || role === 'admin';
-  const isManagerOrUp = role === 'manager' || isAdminOrSuper;
+  // v5.0.2 — strict role-per-action separation per user spec:
+  //   supervisor: submit only
+  //   manager:    lock or send-back from submitted
+  //   admin:      save, send-back from locked, reopen
+  //   super_admin: all (overrides every gate; audit log still records actor)
+  // Each branch checks a precise set of roles, NOT a "role-or-up" predicate
+  // — admins shouldn't be able to do the manager's job (lock / reject from
+  // submitted) and managers shouldn't be able to do the admin's job. The
+  // workflow is deliberately one-step-per-tier so reviewers can't skip a
+  // peer's eyes on the schedule.
+  const isSuper = role === 'super_admin';
 
   switch (action) {
     case 'submit':
-      if (role !== 'supervisor' && role !== 'super_admin') {
+      if (role !== 'supervisor' && !isSuper) {
         return { ok: false, reason: 'Only supervisor (or super-admin) may submit a schedule.' };
       }
       if (from !== 'draft' && from !== 'rejected') {
@@ -88,10 +94,10 @@ export function isValidTransition(p: TransitionParams): TransitionResult {
       return { ok: true, to: 'submitted' };
 
     case 'lock':
-      // Manager owns submitted→locked; admin/super-admin can do it too
-      // (useful when manager is unavailable).
-      if (!isManagerOrUp) {
-        return { ok: false, reason: 'Only manager (or admin / super-admin) may lock a submitted schedule.' };
+      // Manager exclusively owns submitted→locked. Super-admin override
+      // exists only as the "act for any role" emergency hatch.
+      if (role !== 'manager' && !isSuper) {
+        return { ok: false, reason: 'Only the manager (or super-admin) may lock a submitted schedule.' };
       }
       if (from !== 'submitted') {
         return { ok: false, reason: `Cannot lock from "${from}". Only submitted schedules may be locked.` };
@@ -99,9 +105,9 @@ export function isValidTransition(p: TransitionParams): TransitionResult {
       return { ok: true, to: 'locked' };
 
     case 'save':
-      // Admin/super-admin only.
-      if (!isAdminOrSuper) {
-        return { ok: false, reason: 'Only admin / super-admin may finalize a schedule.' };
+      // Admin (or super-admin) only.
+      if (role !== 'admin' && !isSuper) {
+        return { ok: false, reason: 'Only the admin (or super-admin) may finalize a schedule.' };
       }
       if (from !== 'locked') {
         return { ok: false, reason: `Cannot save from "${from}". Only locked schedules may be finalized.` };
@@ -109,33 +115,31 @@ export function isValidTransition(p: TransitionParams): TransitionResult {
       return { ok: true, to: 'saved' };
 
     case 'send-back':
-      // Two distinct cases:
-      //   submitted → rejected (manager rejects, supervisor receives)
-      //   locked    → submitted (admin sends back to manager)
+      // Two distinct cases, each owned by exactly one role tier:
+      //   submitted → rejected   (manager rejects, supervisor receives)
+      //   locked    → submitted  (admin sends back to manager)
       if (from === 'submitted') {
-        if (!isManagerOrUp) {
-          return { ok: false, reason: 'Only manager (or admin / super-admin) may send a submitted schedule back.' };
+        if (role !== 'manager' && !isSuper) {
+          return { ok: false, reason: 'Only the manager (or super-admin) may send a submitted schedule back to the supervisor.' };
         }
-        // The "rejectedFrom" attribution distinguishes manager-initiated
-        // rejection from admin's emergency send-back. Both land in the
-        // rejected state, but the audit log + UI label differ.
+        // rejectedFrom distinguishes manager-initiated rejection from
+        // super-admin emergency send-back. Both land in 'rejected'.
         const rejectedFrom: 'manager' | 'admin' = role === 'manager' ? 'manager' : 'admin';
         return { ok: true, to: 'rejected', rejectedFrom };
       }
       if (from === 'locked') {
-        if (!isAdminOrSuper) {
-          return { ok: false, reason: 'Only admin / super-admin may send a locked schedule back to manager.' };
+        if (role !== 'admin' && !isSuper) {
+          return { ok: false, reason: 'Only the admin (or super-admin) may send a locked schedule back to the manager.' };
         }
         return { ok: true, to: 'submitted', rejectedFrom: 'admin' };
       }
       return { ok: false, reason: `Cannot send back from "${from}". Only submitted or locked schedules can be sent back.` };
 
     case 'reopen':
-      // Admin/super-admin only — supervisors and managers cannot reopen
-      // a saved (archived) schedule. The user explicitly required this:
-      // saved is the official record.
-      if (!isAdminOrSuper) {
-        return { ok: false, reason: 'Only admin / super-admin may reopen a saved schedule.' };
+      // Admin (or super-admin) only. Supervisors and managers cannot
+      // reopen a saved (archived) schedule — saved is the official record.
+      if (role !== 'admin' && !isSuper) {
+        return { ok: false, reason: 'Only the admin (or super-admin) may reopen a saved schedule.' };
       }
       if (from !== 'saved') {
         return { ok: false, reason: `Cannot reopen from "${from}". Only saved schedules can be reopened.` };
@@ -216,6 +220,24 @@ export function availableActionsFor(
   };
 }
 
+// ── Actor display formatter ────────────────────────────────────────────────
+//
+// v5.0.2 — every UI surface that attributes an approval action to a person
+// (banner, action modals, pending-approvals queue, history viewer) calls
+// through this so the formatting is consistent: prefer "Name · Position",
+// fall back to just name, then to UID, then to 'unknown'. Pre-v5.0.2
+// records have only the UID — they degrade gracefully.
+
+export function formatApprovalActor(
+  name: string | null | undefined,
+  position: string | null | undefined,
+  uid: string | null | undefined,
+): string {
+  if (name && position) return `${name} · ${position}`;
+  if (name) return name;
+  return uid ?? 'unknown';
+}
+
 // ── History entry construction (for the renderer-side transaction body) ────
 //
 // Firestore's serverTimestamp() can't sit inside an arrayUnion payload —
@@ -228,6 +250,10 @@ export function buildHistoryEntry(params: {
   action: ApprovalAction;
   actor: string;
   actorEmail: string | null;
+  // v5.0.2 — captured at action time so the audit trail keeps a stable
+  // identity even if the user is later renamed or re-positioned.
+  actorName?: string;
+  actorPosition?: string;
   role: Role;
   notes?: string;
   destinationStatus?: ApprovalStatus;
@@ -238,6 +264,8 @@ export function buildHistoryEntry(params: {
     actor: params.actor,
     actorEmail: params.actorEmail,
     role: params.role,
+    ...(params.actorName ? { actorName: params.actorName } : {}),
+    ...(params.actorPosition ? { actorPosition: params.actorPosition } : {}),
     ...(params.notes ? { notes: params.notes } : {}),
     ...(params.destinationStatus ? { destinationStatus: params.destinationStatus } : {}),
   };

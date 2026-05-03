@@ -2,6 +2,40 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v5.0.2 — 2026-05-03
+
+**Patch follow-up to v5.0.0.** End-to-end testing surfaced four issues at the boundary between the v5.0 approval workflow and the multi-user identity it depends on. Fixes are deliberately conservative — same state machine, same Firestore doc shape, same modals. What changed is **who can do what**, **how actions are attributed**, and **what the user sees when something refuses to run**.
+
+**Strict per-role permission matrix** ([`scheduleApproval.ts`](src/lib/scheduleApproval.ts))
+- Pre-v5.0.2 the validator allowed admin to lock a submitted schedule and to send a submitted schedule back ("admin-as-fallback-manager" semantics). That blurred the two-tier review the workflow exists to enforce.
+- v5.0.2 tightens to one role per action: **supervisor** submits only; **manager** locks or sends back to supervisor only; **admin** saves, sends back to manager, or reopens; **super-admin** can do all (audit log records the actor's true role).
+- Test count update: valid transitions across the (state × action × role) matrix went from 16 → 14 (-1 for admin-can-lock, -1 for admin-can-reject-from-submitted).
+
+**Manager role recognized end-to-end** ([`auth.tsx`](src/lib/auth.tsx), [`admin-bridge.cjs`](electron/admin-bridge.cjs))
+- Pre-v5.0.2 bug: `auth.tsx` claim-hydration only checked `super_admin | admin | supervisor`, silently dropping `'manager'` to `null`. Combined with the role-null = offline-mode fallback, a real manager user was treated as "no auth, full access" — entirely outside the workflow.
+- Bridge fix: `admin:createUser` and `admin:setUserRole` rejected `'manager'` with `BAD_INPUT`. Now use a shared `VALID_ROLES` allowlist that includes manager, plus a `SCOPED_ROLES` set so manager (like supervisor) gets `companies` written to its custom claims and to `/users/{uid}.companies`.
+
+**Human identity on every approval action** ([`firestoreSchedules.ts`](src/lib/firestoreSchedules.ts), [`ScheduleApprovalBanner.tsx`](src/components/Schedule/ScheduleApprovalBanner.tsx), [`PendingApprovalsCard.tsx`](src/components/Schedule/PendingApprovalsCard.tsx), [`UsersPanel.tsx`](src/components/SuperAdmin/UsersPanel.tsx))
+- Pre-v5.0.2 the banner read *"Submitted by k7BTzr… on 2026-04-12 14:08"* — a UID, no name, no role context.
+- New `position` field on the user profile doc, set by the super-admin alongside `displayName` in the New User / Edit User form (now editable in **both** create and edit modes; retroactive fill-in supported for users created before v5.0.2). Self-edit still locks role / companies / tabPerms — name and position are the only self-editable fields, with both client-side and handler-side guards against tampered submissions.
+- Public transition functions (`submitForApproval` / `lockSchedule` / `saveSchedule` / `sendBackToSupervisor` / `sendBackToManager` / `reopenSchedule`) now take a `TransitionActor { uid, email, role, name?, position? }` object instead of positional uid+email+role. Each transaction stamps `${prefix}ByName` and `${prefix}ByPosition` field-paths onto the `approval` block alongside the existing `${prefix}By` (UID). Pre-v5.0.2 records keep working — the UI degrades to UID when the name fields are absent.
+- New shared formatter `formatApprovalActor(name, position, uid)` consumed by the banner, lock/save modals, pending-approvals queue, and history viewer. Format: `"Mohammed Al-Rashid · Floor Manager — Branch A"` when both fields are set; `"Mohammed Al-Rashid"` if position is empty; UID as last-resort fallback.
+- Approval-history entries (`buildHistoryEntry`) capture `actorName` + `actorPosition` snapshot at action time so the audit trail keeps a stable identity even if the user is later renamed or repositioned.
+
+**Cell-editing visual feedback in non-editable states** ([`Primitives.tsx`](src/components/Primitives.tsx), [`ScheduleTab.tsx`](src/tabs/ScheduleTab.tsx))
+- `ScheduleCell` gains a `readOnly` prop. When the schedule is in `submitted` / `locked` / `saved` (or any non-draft state for an authenticated user), filled cells fade to 60% opacity, empty cells get a subtle slate background, the hover scale-up is skipped, and the cursor switches to `not-allowed` immediately. Pre-v5.0.2 the cells rendered identically to draft state — clicks did nothing because the handlers short-circuited, but users had no visual signal why.
+- Paint mode now auto-clears when the grid transitions into a read-only state, so the painter banner can't sit "armed but inert".
+
+**Quota panel: BILLING_REQUIRED setup path** ([`admin-bridge.cjs`](electron/admin-bridge.cjs), [`QuotaPanel.tsx`](src/components/SuperAdmin/QuotaPanel.tsx))
+- Cloud Monitoring's `timeSeries` endpoint returns 403 with `reason: BILLING_DISABLED` on Firebase projects still on the Spark plan — billing has to be enabled (Blaze pay-as-you-go) before the API will respond, even though the metric read itself is free.
+- Pre-v5.0.2 the bridge classified this as generic `FORBIDDEN`, so the quota panel surfaced a confusing IAM-role-missing card. Now there's a dedicated `BILLING_REQUIRED` cause with clear copy ("Live quota visibility requires the Blaze plan"), a deep-link to Firebase Console → Usage & Billing → Modify plan, and an explicit reassurance that Blaze stays free up to the same Spark caps.
+- Approval-error handler also `console.error()`s the raw error now so failed transitions show their underlying Firestore / validator message in DevTools — useful for diagnosing user-reported "nothing happens" reports.
+
+**Compatibility**
+- All 157 tests pass. `tsc --noEmit` clean. Secret-leak audit clean (no real keys, JSONs, .env, or PEM markers in tracked history).
+- No Firestore schema migration needed: every new field (`displayName`, `position`, `submittedByName`, `submittedByPosition`, etc.) is optional and pre-v5.0.2 docs render with the UID fallback. Existing users will see UIDs in their banner until the super-admin opens **Super Admin → Users → Edit** and fills in the name + position fields.
+- No Firestore index change. Indexes from v5.0.1 still apply.
+
 ## v5.0.1 — 2026-05-03
 
 **Operational follow-up to v5.0.0** — adds the missing Firestore field-override that lets the v5.0 manager + admin dashboard widgets actually run their `collectionGroup('schedules')` queries without a console error.

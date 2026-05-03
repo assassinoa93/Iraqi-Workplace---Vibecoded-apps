@@ -39,6 +39,18 @@ function gcpIamUrl(projectId: string | undefined): string {
     ? `https://console.cloud.google.com/iam-admin/iam?project=${projectId}`
     : 'https://console.cloud.google.com/iam-admin/iam';
 }
+// v5.0.2 — Blaze upgrade deep-link. Cloud Monitoring requires the project
+// to have billing enabled (Blaze plan); on Spark it 403s with BILLING_DISABLED.
+function gcpBillingEnableUrl(projectId: string | undefined): string {
+  return projectId
+    ? `https://console.cloud.google.com/billing/linkedaccount?project=${projectId}`
+    : 'https://console.cloud.google.com/billing';
+}
+function firebaseUpgradeUrl(projectId: string | undefined): string {
+  return projectId
+    ? `https://console.firebase.google.com/project/${projectId}/usage/details`
+    : 'https://console.firebase.google.com/';
+}
 
 const POLL_MS = 60_000;
 
@@ -130,7 +142,10 @@ export function QuotaPanel() {
     return allSame ? causes[0] : null;
   })();
 
-  const setupRequired = dominantCause === 'API_NOT_ENABLED' || dominantCause === 'PERMISSION_DENIED';
+  const setupRequired =
+    dominantCause === 'API_NOT_ENABLED' ||
+    dominantCause === 'PERMISSION_DENIED' ||
+    dominantCause === 'BILLING_REQUIRED';
 
   return (
     <Section>
@@ -203,27 +218,64 @@ function SetupRequiredCard({ cause, serviceAccountEmail, onRecheck }: {
     } catch { /* ignore */ }
   };
 
-  // Two distinct setup paths — show whichever the API told us about. Both
-  // are one-time GCP Console clicks; neither requires changing the app.
+  // v5.0.2 — three distinct setup paths now (was two). Each maps to one
+  // GCP Console action; the renderer picks the right copy + steps from
+  // the structured cause the bridge produced.
   const isApiDisabled = cause === 'API_NOT_ENABLED';
+  const isBillingRequired = cause === 'BILLING_REQUIRED';
+
+  const headlineCopy = isBillingRequired
+    ? 'Live quota visibility requires the Blaze (pay-as-you-go) plan'
+    : 'One-time setup needed to read live quota';
+  const bodyCopy = isBillingRequired
+    ? "Cloud Monitoring's quota-read API is only available on Firebase projects with billing enabled (Blaze plan). The Spark free tier doesn't expose this metric. Reading the metric itself is still free; the project just has to be billing-eligible. The local-exhaust banner above continues to work on either plan."
+    : isApiDisabled
+      ? 'The Cloud Monitoring API isn\'t enabled on this Firebase / Google Cloud project yet. Enable it in Cloud Console (free, no billing), then come back and click Re-check.'
+      : 'Your service account is missing the Monitoring Viewer role. The Firebase Admin SDK role granted by default doesn\'t include it. Add the role in Cloud Console IAM, then come back and click Re-check.';
 
   return (
     <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-5 space-y-4">
       <div className="flex items-start gap-3">
         <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-300 mt-0.5 shrink-0" />
         <div className="space-y-1">
-          <p className="text-sm font-bold text-amber-800 dark:text-amber-200">
-            One-time setup needed to read live quota
-          </p>
-          <p className="text-[11px] text-amber-700 dark:text-amber-200/80 leading-relaxed">
-            {isApiDisabled
-              ? 'The Cloud Monitoring API isn\'t enabled on this Firebase / Google Cloud project yet. Enable it in Cloud Console (free, no billing), then come back and click Re-check.'
-              : 'Your service account is missing the Monitoring Viewer role. The Firebase Admin SDK role granted by default doesn\'t include it. Add the role in Cloud Console IAM, then come back and click Re-check.'}
-          </p>
+          <p className="text-sm font-bold text-amber-800 dark:text-amber-200">{headlineCopy}</p>
+          <p className="text-[11px] text-amber-700 dark:text-amber-200/80 leading-relaxed">{bodyCopy}</p>
         </div>
       </div>
 
-      {isApiDisabled ? (
+      {isBillingRequired ? (
+        <ol className="text-[11px] text-amber-800 dark:text-amber-200 leading-relaxed list-decimal list-inside space-y-1.5 ms-1">
+          <li>
+            Open{' '}
+            <a
+              href={firebaseUpgradeUrl(projectId)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-baseline gap-1 underline hover:no-underline font-medium"
+            >
+              Firebase Console → Usage and billing
+              <ExternalLink className="w-3 h-3 self-center" />
+            </a>{' '}
+            for project <code className="font-mono">{projectId ?? '…'}</code> and click <strong>Modify plan</strong> → <strong>Blaze</strong>.
+          </li>
+          <li>
+            Or link a billing account directly in{' '}
+            <a
+              href={gcpBillingEnableUrl(projectId)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-baseline gap-1 underline hover:no-underline font-medium"
+            >
+              Cloud Console → Billing
+              <ExternalLink className="w-3 h-3 self-center" />
+            </a>.
+          </li>
+          <li>Wait ~1–2 minutes for the project to switch tier, then click <strong>Re-check</strong> below.</li>
+          <li className="text-amber-700 dark:text-amber-200/80 italic list-none ms-0 pt-1">
+            Heads-up: Blaze is pay-as-you-go but stays free up to the same Spark limits — no charge until you exceed those. Reading the quota metric itself is free.
+          </li>
+        </ol>
+      ) : isApiDisabled ? (
         <ol className="text-[11px] text-amber-800 dark:text-amber-200 leading-relaxed list-decimal list-inside space-y-1.5 ms-1">
           <li>
             Open{' '}

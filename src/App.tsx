@@ -105,7 +105,7 @@ import {
   type ApprovalBlock,
   type HrisSyncBlock,
 } from './lib/firestoreSchedules';
-import { effectiveStatus, availableActionsFor } from './lib/scheduleApproval';
+import { effectiveStatus, availableActionsFor, formatApprovalActor } from './lib/scheduleApproval';
 import { useApprovalQueue } from './lib/useApprovalQueue';
 import {
   SubmitForApprovalModal,
@@ -170,7 +170,7 @@ export default function App() {
   // useAuth() returns the default (role=null, isAuthenticated=false) and
   // every tab visibility / company filter check becomes a no-op — i.e. the
   // single-user product behaves exactly as before.
-  const { user, role, allowedCompanies, tabPerms, signOut, isAuthenticated } = useAuth();
+  const { user, role, allowedCompanies, tabPerms, displayName, position, signOut, isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dataLoaded, setDataLoaded] = useState(false);
 
@@ -2477,13 +2477,27 @@ export default function App() {
     return c?.name ?? activeMonthYyyymm;
   })();
 
-  const approvalActorMeta = (): { uid: string; email: string | null; role: import('./lib/auth').Role } | null => {
+  const approvalActorMeta = (): import('./lib/firestoreSchedules').TransitionActor | null => {
     if (!isAuthenticated || !user || !role) return null;
-    return { uid: user.uid, email: user.email, role };
+    return {
+      uid: user.uid,
+      email: user.email,
+      role,
+      // v5.0.2 — name + position flow into the approval block so the
+      // banner / queue / history viewer attribute actions to a human
+      // identity instead of a UID. Both nullable; the UI degrades to
+      // email when missing.
+      name: displayName,
+      position,
+    };
   };
 
   const handleApprovalError = (err: unknown, fallback: string) => {
     const e = err as { code?: string; message?: string };
+    // v5.0.2 — log the raw error too so dev-tools captures Firestore
+    // permission-denied / validator messages we can use to diagnose
+    // user-reported "nothing happens" cases (e.g. reopen-from-saved).
+    console.error('[Scheduler] Approval transition failed:', err);
     showInfo(
       t('info.error.title'),
       e?.message ?? fallback,
@@ -2495,7 +2509,7 @@ export default function App() {
     if (!meta || !activeCompanyId) return;
     setApprovalBusy(true);
     try {
-      await fsSubmitForApproval(activeCompanyId, activeMonthYyyymm, meta.uid, meta.email, meta.role, notes || undefined);
+      await fsSubmitForApproval(activeCompanyId, activeMonthYyyymm, meta, notes || undefined);
       void writeAuditEntries(
         [buildApprovalAuditEntry({ action: 'submit', yyyymm: activeMonthYyyymm, actorRole: meta.role, notes: notes || undefined })],
         activeCompanyId, meta.uid, meta.email,
@@ -2513,7 +2527,7 @@ export default function App() {
     if (!meta || !activeCompanyId) return;
     setApprovalBusy(true);
     try {
-      await fsLockSchedule(activeCompanyId, activeMonthYyyymm, meta.uid, meta.email, meta.role, notes || undefined);
+      await fsLockSchedule(activeCompanyId, activeMonthYyyymm, meta, notes || undefined);
       void writeAuditEntries(
         [buildApprovalAuditEntry({ action: 'lock', yyyymm: activeMonthYyyymm, actorRole: meta.role, notes: notes || undefined })],
         activeCompanyId, meta.uid, meta.email,
@@ -2531,7 +2545,7 @@ export default function App() {
     if (!meta || !activeCompanyId) return;
     setApprovalBusy(true);
     try {
-      await fsSaveSchedule(activeCompanyId, activeMonthYyyymm, meta.uid, meta.email, meta.role, notes || undefined);
+      await fsSaveSchedule(activeCompanyId, activeMonthYyyymm, meta, notes || undefined);
       void writeAuditEntries(
         [buildApprovalAuditEntry({ action: 'save', yyyymm: activeMonthYyyymm, actorRole: meta.role, notes: notes || undefined })],
         activeCompanyId, meta.uid, meta.email,
@@ -2553,9 +2567,9 @@ export default function App() {
       // Branch on current state: submitted → rejected (manager-initiated)
       // or locked → submitted (admin sends back to manager).
       if (fromStatus === 'submitted') {
-        await fsSendBackToSupervisor(activeCompanyId, activeMonthYyyymm, meta.uid, meta.email, meta.role, notes);
+        await fsSendBackToSupervisor(activeCompanyId, activeMonthYyyymm, meta, notes);
       } else if (fromStatus === 'locked') {
-        await fsSendBackToManager(activeCompanyId, activeMonthYyyymm, meta.uid, meta.email, meta.role, notes);
+        await fsSendBackToManager(activeCompanyId, activeMonthYyyymm, meta, notes);
       } else {
         throw new Error(`Cannot send back from "${fromStatus}".`);
       }
@@ -2578,7 +2592,7 @@ export default function App() {
     const postExport = !!activeMonthHrisSync?.lastExportedAt;
     setApprovalBusy(true);
     try {
-      await fsReopenSchedule(activeCompanyId, activeMonthYyyymm, meta.uid, meta.email, meta.role, notes);
+      await fsReopenSchedule(activeCompanyId, activeMonthYyyymm, meta, notes);
       void writeAuditEntries(
         [buildApprovalAuditEntry({ action: 'reopen', yyyymm: activeMonthYyyymm, actorRole: meta.role, notes, postHrisExport: postExport })],
         activeCompanyId, meta.uid, meta.email,
@@ -3326,7 +3340,11 @@ export default function App() {
               onConfirm={handleLockSchedule}
               monthLabel={monthLabel}
               companyLabel={companyLabel}
-              submittedBy={activeMonthApproval?.submittedBy ?? null}
+              submittedBy={formatApprovalActor(
+                activeMonthApproval?.submittedByName,
+                activeMonthApproval?.submittedByPosition,
+                activeMonthApproval?.submittedBy,
+              )}
               submittedAtLabel={submittedAtMs ? format(new Date(submittedAtMs), 'yyyy-MM-dd HH:mm') : null}
               violations={hardViolations}
               infos={infoFindings}
@@ -3339,7 +3357,11 @@ export default function App() {
               onConfirm={handleSaveSchedule}
               monthLabel={monthLabel}
               companyLabel={companyLabel}
-              lockedBy={activeMonthApproval?.lockedBy ?? null}
+              lockedBy={formatApprovalActor(
+                activeMonthApproval?.lockedByName,
+                activeMonthApproval?.lockedByPosition,
+                activeMonthApproval?.lockedBy,
+              )}
               lockedAtLabel={lockedAtMs ? format(new Date(lockedAtMs), 'yyyy-MM-dd HH:mm') : null}
               violations={hardViolations}
               infos={infoFindings}

@@ -426,7 +426,10 @@ function registerAdminIpc() {
       return {
         uid: u.uid,
         email: u.email || null,
+        // v5.0.2 — displayName comes from Auth (canonical), position from
+        // the /users/{uid} doc (we can't put both on Auth's user record).
         displayName: u.displayName || null,
+        position: userDoc.position || null,
         disabled: !!u.disabled,
         emailVerified: !!u.emailVerified,
         createdAt: u.metadata.creationTime || null,
@@ -438,14 +441,23 @@ function registerAdminIpc() {
     });
   });
 
-  safeHandle('admin:createUser', async ({ projectId, idToken, email, password, role, companies = [], displayName, tabPerms } = {}) => {
+  // v5.0.2 — single source of truth for what role values are valid here.
+  // 'manager' was missing pre-v5.0.2, so the workflow tier could be
+  // assigned via Firebase Console but not via the in-app super-admin form.
+  const VALID_ROLES = ['super_admin', 'admin', 'manager', 'supervisor'];
+  // Roles that are scoped to specific companies (claim-driven). Admin and
+  // super-admin see every company; others (manager + supervisor) need an
+  // explicit `companies` list set on their custom claims.
+  const SCOPED_ROLES = ['manager', 'supervisor'];
+
+  safeHandle('admin:createUser', async ({ projectId, idToken, email, password, role, companies = [], displayName, position, tabPerms } = {}) => {
     await requireSuperAdmin(projectId, idToken);
     if (!email || !password || !role) {
       const err = new Error('email, password, and role are required');
       err.code = 'BAD_INPUT';
       throw err;
     }
-    if (!['super_admin', 'admin', 'supervisor'].includes(role)) {
+    if (!VALID_ROLES.includes(role)) {
       const err = new Error(`Invalid role: ${role}`);
       err.code = 'BAD_INPUT';
       throw err;
@@ -460,15 +472,19 @@ function registerAdminIpc() {
       emailVerified: false,
       disabled: false,
     });
-    const claims = role === 'supervisor'
+    const claims = SCOPED_ROLES.includes(role)
       ? { role, companies: Array.isArray(companies) ? companies : [] }
       : { role };
     await auth.setCustomUserClaims(created.uid, claims);
     const userDoc = {
       email,
       displayName: displayName || null,
+      // v5.0.2 — position is the human-readable job title shown alongside
+      // displayName in the approval banner / queue. Optional; if missing,
+      // the UI falls back to just the displayName.
+      position: position || null,
       role,
-      ...(role === 'supervisor' ? { companies: claims.companies } : {}),
+      ...(SCOPED_ROLES.includes(role) ? { companies: claims.companies } : {}),
       ...(tabPerms ? { tabPerms } : {}),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -483,14 +499,14 @@ function registerAdminIpc() {
     };
   });
 
-  safeHandle('admin:setUserRole', async ({ projectId, idToken, uid, role, companies = [], tabPerms } = {}) => {
+  safeHandle('admin:setUserRole', async ({ projectId, idToken, uid, role, companies = [], displayName, position, tabPerms } = {}) => {
     await requireSuperAdmin(projectId, idToken);
     if (!uid || !role) {
       const err = new Error('uid and role are required');
       err.code = 'BAD_INPUT';
       throw err;
     }
-    if (!['super_admin', 'admin', 'supervisor'].includes(role)) {
+    if (!VALID_ROLES.includes(role)) {
       const err = new Error(`Invalid role: ${role}`);
       err.code = 'BAD_INPUT';
       throw err;
@@ -498,15 +514,31 @@ function registerAdminIpc() {
     const adminApp = adminApps.get(projectId);
     const auth = adminApp.auth();
     const db = adminApp.firestore();
-    const claims = role === 'supervisor'
+    const claims = SCOPED_ROLES.includes(role)
       ? { role, companies: Array.isArray(companies) ? companies : [] }
       : { role };
     await auth.setCustomUserClaims(uid, claims);
+    // v5.0.2 — displayName lives on the Auth user record (canonical for
+    // Firebase Auth UI). Update it too if the super-admin supplied one.
+    if (displayName !== undefined) {
+      await auth.updateUser(uid, { displayName: displayName || null });
+    }
     const docPatch = {
       role,
-      ...(role === 'supervisor'
+      ...(SCOPED_ROLES.includes(role)
         ? { companies: claims.companies }
         : { companies: admin.firestore.FieldValue.delete() }),
+      // displayName/position: undefined = leave alone; '' or null = clear; string = set.
+      ...(displayName === undefined
+        ? {}
+        : displayName
+          ? { displayName }
+          : { displayName: admin.firestore.FieldValue.delete() }),
+      ...(position === undefined
+        ? {}
+        : position
+          ? { position }
+          : { position: admin.firestore.FieldValue.delete() }),
       // tabPerms: explicit null clears, undefined leaves alone.
       ...(tabPerms === null
         ? { tabPerms: admin.firestore.FieldValue.delete() }
@@ -732,7 +764,15 @@ function registerAdminIpc() {
         // Map to a stable cause string the renderer can switch on.
         let cause = 'UNKNOWN';
         if (status === 403) {
-          if (reason === 'SERVICE_DISABLED' || /API has not been used|has not been used in project/i.test(message)) {
+          // v5.0.2 — billing-required is a distinct setup path: Cloud
+          // Monitoring on a Spark-plan project returns 403 with reason
+          // BILLING_DISABLED and a "requires billing to be enabled"
+          // message. Pre-v5.0.2 we surfaced this as a generic FORBIDDEN
+          // with no actionable guidance — users had no idea they needed
+          // to upgrade to Blaze before live quota visibility could work.
+          if (reason === 'BILLING_DISABLED' || /billing.*enabled|enable billing/i.test(message)) {
+            cause = 'BILLING_REQUIRED';
+          } else if (reason === 'SERVICE_DISABLED' || /API has not been used|has not been used in project/i.test(message)) {
             cause = 'API_NOT_ENABLED';
           } else if (reason === 'IAM_PERMISSION_DENIED' || /permission/i.test(message)) {
             cause = 'PERMISSION_DENIED';

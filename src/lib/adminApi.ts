@@ -28,6 +28,9 @@ export interface AdminUser {
   uid: string;
   email: string | null;
   displayName: string | null;
+  // v5.0.2 — human-readable job title shown alongside displayName in the
+  // approval banner / queue (e.g. "Floor Manager — Branch A").
+  position: string | null;
   disabled: boolean;
   emailVerified: boolean;
   createdAt: string | null;
@@ -45,6 +48,9 @@ export interface AuditStats {
 export type QuotaErrorCause =
   | 'API_NOT_ENABLED'
   | 'PERMISSION_DENIED'
+  // v5.0.2 — Cloud Monitoring requires the GCP project to be on the
+  // Blaze (pay-as-you-go) plan; Spark projects 403 with this cause.
+  | 'BILLING_REQUIRED'
   | 'FORBIDDEN'
   | 'UPSTREAM_ERROR'
   | 'UNKNOWN';
@@ -72,6 +78,8 @@ export interface CreateUserPayload {
   role: Role;
   companies?: string[];
   displayName?: string;
+  // v5.0.2 — human-readable job title (e.g. "Floor Manager", "HR Director").
+  position?: string;
   tabPerms?: TabPerms | null;
 }
 
@@ -79,6 +87,10 @@ export interface SetUserRolePayload {
   uid: string;
   role: Role;
   companies?: string[];
+  // v5.0.2 — null = clear; undefined = leave alone; string = replace.
+  // Matches tabPerms semantics so the bridge can distinguish.
+  displayName?: string | null;
+  position?: string | null;
   // null = clear; undefined = leave alone; object = replace.
   tabPerms?: TabPerms | null;
 }

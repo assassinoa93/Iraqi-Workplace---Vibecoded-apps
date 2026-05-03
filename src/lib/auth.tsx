@@ -30,6 +30,11 @@ export interface AuthState {
   // Per-tab access overrides loaded from /users/{uid}.tabPerms. null when
   // none set — falls back to TAB_DEFAULTS_BY_ROLE in tabAccess().
   tabPerms: TabPerms | null;
+  // v5.0.2 — human identity for approval-trail attribution. Shown in the
+  // schedule banner / approvals queue / history viewer instead of UID.
+  // Both nullable: a user with no profile fields falls back to email.
+  displayName: string | null;
+  position: string | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -43,6 +48,8 @@ const defaultState: AuthState = {
   role: null,
   allowedCompanies: null,
   tabPerms: null,
+  displayName: null,
+  position: null,
   loading: false,
   signIn: async () => { throw new Error('AuthProvider not mounted'); },
   signOut: async () => { /* no-op in offline mode */ },
@@ -56,6 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<Role | null>(null);
   const [allowedCompanies, setAllowedCompanies] = useState<string[] | null>(null);
   const [tabPerms, setTabPerms] = useState<TabPerms | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [position, setPosition] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -74,26 +83,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubUserDoc?.();
           unsubUserDoc = undefined;
           setTabPerms(null);
+          setDisplayName(u?.displayName ?? null);
+          setPosition(null);
 
           if (u) {
             try {
               const tokenResult = await u.getIdTokenResult();
               const claims = tokenResult.claims as { role?: string; companies?: string[] };
-              const r = (claims.role === 'super_admin' || claims.role === 'admin' || claims.role === 'supervisor')
-                ? claims.role as Role
-                : null;
+              // v5.0.2 — recognise 'manager' alongside the original three.
+              // Pre-v5.0.2 a user with role='manager' fell through to null
+              // and was treated as offline-mode (full access).
+              const r = (
+                claims.role === 'super_admin' ||
+                claims.role === 'admin' ||
+                claims.role === 'manager' ||
+                claims.role === 'supervisor'
+              ) ? claims.role as Role : null;
               setRole(r);
               if (r === 'super_admin' || r === 'admin') {
                 setAllowedCompanies(null);
-              } else if (r === 'supervisor' && Array.isArray(claims.companies)) {
+              } else if ((r === 'supervisor' || r === 'manager') && Array.isArray(claims.companies)) {
                 setAllowedCompanies(claims.companies);
               } else {
                 setAllowedCompanies([]);
               }
 
-              // Subscribe to /users/{uid} for the per-tab perms override.
-              // Live updates so a super-admin tweaking perms in one tab is
-              // reflected on the user's session within ~1s without a
+              // Subscribe to /users/{uid} for tabPerms + displayName + position.
+              // Live updates so a super-admin tweaking perms or job-title in
+              // one tab reflects on the user's session within ~1s without a
               // re-login.
               try {
                 const { getDb } = await import('./firestoreClient');
@@ -116,6 +133,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     } else {
                       setTabPerms(null);
                     }
+                    // Doc-level displayName overrides Auth's, since the
+                    // super-admin's edit form writes to the doc (single
+                    // source of truth for the human-identity fields).
+                    const docName = typeof data?.displayName === 'string' ? data.displayName : null;
+                    setDisplayName(docName ?? u.displayName ?? null);
+                    setPosition(typeof data?.position === 'string' ? data.position : null);
                   },
                   () => { /* permission-denied or transient — ignore, fall back to role default */ },
                 );
@@ -129,6 +152,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else {
             setRole(null);
             setAllowedCompanies(null);
+            setDisplayName(null);
+            setPosition(null);
           }
           setLoading(false);
         });
@@ -157,10 +182,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const value = useMemo<AuthState>(() => ({
-    user, role, allowedCompanies, tabPerms, loading,
+    user, role, allowedCompanies, tabPerms, displayName, position, loading,
     signIn, signOut,
     isAuthenticated: true,
-  }), [user, role, allowedCompanies, tabPerms, loading]);
+  }), [user, role, allowedCompanies, tabPerms, displayName, position, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

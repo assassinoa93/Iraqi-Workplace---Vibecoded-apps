@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import type { ApprovalBlock, ApprovalStatus } from '../../lib/firestoreSchedules';
 import type { Role } from '../../lib/auth';
-import { availableActionsFor } from '../../lib/scheduleApproval';
+import { availableActionsFor, formatApprovalActor } from '../../lib/scheduleApproval';
 import { cn } from '../../lib/utils';
 
 interface Props {
@@ -54,6 +54,7 @@ function formatStamp(stamp: unknown): string {
   else if (typeof stamp === 'number') ms = stamp;
   return ms ? format(new Date(ms), 'yyyy-MM-dd HH:mm') : '—';
 }
+
 
 export function ScheduleApprovalBanner({
   approval, monthLabel, role, canWriteSchedule,
@@ -199,7 +200,7 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         notesBg: 'bg-amber-100/60 dark:bg-amber-500/15 text-amber-800 dark:text-amber-100',
         title: 'Submitted — awaiting manager validation',
         bodyLines: [
-          `Submitted by ${approval?.submittedBy ?? 'unknown'} on ${formatStamp(approval?.submittedAt)}.`,
+          `Submitted by ${formatApprovalActor(approval?.submittedByName, approval?.submittedByPosition, approval?.submittedBy)} on ${formatStamp(approval?.submittedAt)}.`,
           'Cells are read-only until a manager locks or sends it back.',
         ],
       };
@@ -230,7 +231,7 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         notesBg: 'bg-blue-100/60 dark:bg-blue-500/15 text-blue-800 dark:text-blue-100',
         title: 'Locked — manager-validated, awaiting admin finalization',
         bodyLines: [
-          `Locked by ${approval?.lockedBy ?? 'unknown'} on ${formatStamp(approval?.lockedAt)}.`,
+          `Locked by ${formatApprovalActor(approval?.lockedByName, approval?.lockedByPosition, approval?.lockedBy)} on ${formatStamp(approval?.lockedAt)}.`,
           'Cells are read-only. Admin can save & finalize, or send back to manager.',
         ],
       };
@@ -246,7 +247,7 @@ function bannerConfigFor(status: ApprovalStatus, approval: ApprovalBlock | undef
         notesBg: 'bg-emerald-100/60 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-100',
         title: 'Saved — final, archived for record-keeping',
         bodyLines: [
-          `Saved by ${approval?.savedBy ?? 'unknown'} on ${formatStamp(approval?.savedAt)}.`,
+          `Saved by ${formatApprovalActor(approval?.savedByName, approval?.savedByPosition, approval?.savedBy)} on ${formatStamp(approval?.savedAt)}.`,
           'This is the official version. Admin can export to HRIS or reopen for amendments.',
         ],
       };

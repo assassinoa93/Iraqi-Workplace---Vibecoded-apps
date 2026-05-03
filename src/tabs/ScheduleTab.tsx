@@ -135,6 +135,9 @@ interface RowData {
   onToggleCollapse: (stationId: string) => void;
   groupingEnabled: boolean;
   totalGridWidth: number;
+  // v5.0.2 — when false, every cell renders read-only (cursor-not-allowed
+  // + faded bg). Driven by approval status (submitted/locked/saved).
+  cellsReadOnly: boolean;
 }
 
 // Each visible row is rendered by react-window. We deliberately do NOT wrap
@@ -144,6 +147,7 @@ interface RowData {
 function ScheduleRow({
   index, style, rowPlan, days, schedule, onCellClick, onCellMouseDown, onCellMouseEnter,
   recentlyChangedCells, statsByEmpId, onToggleCollapse, groupingEnabled, totalGridWidth,
+  cellsReadOnly,
 }: RowComponentProps<RowData>) {
   const item = rowPlan[index];
   if (!item) return <div style={style} />;
@@ -253,6 +257,7 @@ function ScheduleRow({
               onMouseDown={(e) => emp && onCellMouseDown(emp.empId, day, e)}
               onMouseEnter={() => emp && onCellMouseEnter(emp.empId, day)}
               isRecent={isRecent}
+              readOnly={cellsReadOnly}
             />
           </div>
         );
@@ -324,6 +329,13 @@ export function ScheduleTab({
       setPaintBannerPulse(false);
     }
   }, [paintMode?.shiftCode]);
+
+  // v5.0.2 — when the schedule transitions into a read-only state (submit
+  // / lock / save), clear any active paint selection so the user doesn't
+  // see a "painting X" banner without being able to actually paint.
+  useEffect(() => {
+    if (!canEditCells && paintMode) setPaintMode(null);
+  }, [canEditCells, paintMode, setPaintMode]);
 
   // Refs for the sticky top scrollbar mirror (v1.13) and the manual
   // sticky-left translate fix for the names column (v1.15). Two separate
@@ -993,6 +1005,7 @@ export function ScheduleTab({
                   onToggleCollapse: toggleCollapse,
                   groupingEnabled: scheduleGroupByStation,
                   totalGridWidth,
+                  cellsReadOnly: !canEditCells,
                 }}
               />
             )}

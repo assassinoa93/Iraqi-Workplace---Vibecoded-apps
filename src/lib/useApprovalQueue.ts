@@ -21,9 +21,15 @@ export interface ApprovalQueueRow {
   status: ApprovalStatus;
   submittedAt: number | null;
   submittedBy: string | null;
+  // v5.0.2 — name + position stamped on the approval block at action time.
+  // null on pre-v5.0.2 rows.
+  submittedByName: string | null;
+  submittedByPosition: string | null;
   submittedNotes: string | null;
   lockedAt: number | null;
   lockedBy: string | null;
+  lockedByName: string | null;
+  lockedByPosition: string | null;
 }
 
 interface Options {
@@ -77,7 +83,11 @@ export function useApprovalQueue({
             if (cancelled) return;
             const next: ApprovalQueueRow[] = [];
             for (const docSnap of snap.docs) {
-              const data = docSnap.data() as { approval?: { status?: ApprovalStatus; submittedAt?: unknown; submittedBy?: string; submittedNotes?: string; lockedAt?: unknown; lockedBy?: string } };
+              const data = docSnap.data() as { approval?: {
+                status?: ApprovalStatus;
+                submittedAt?: unknown; submittedBy?: string; submittedByName?: string; submittedByPosition?: string; submittedNotes?: string;
+                lockedAt?: unknown; lockedBy?: string; lockedByName?: string; lockedByPosition?: string;
+              } };
               const yyyymm = docSnap.id;
               const parts = docSnap.ref.path.split('/');
               const companyId = parts[1];
@@ -91,9 +101,13 @@ export function useApprovalQueue({
                 status: a.status,
                 submittedAt: toMs(a.submittedAt),
                 submittedBy: a.submittedBy ?? null,
+                submittedByName: a.submittedByName ?? null,
+                submittedByPosition: a.submittedByPosition ?? null,
                 submittedNotes: a.submittedNotes ?? null,
                 lockedAt: toMs(a.lockedAt),
                 lockedBy: a.lockedBy ?? null,
+                lockedByName: a.lockedByName ?? null,
+                lockedByPosition: a.lockedByPosition ?? null,
               });
             }
             // Sort: oldest first — the schedule that's been waiting longest

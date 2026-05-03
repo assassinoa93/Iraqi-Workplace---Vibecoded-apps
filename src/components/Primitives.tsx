@@ -336,27 +336,39 @@ export function KpiCard({ label, value, trend, unit }: { label: string; value: a
 }
 
 export function ScheduleCell({
-  value, onClick, isRecent, onMouseDown, onMouseEnter,
+  value, onClick, isRecent, onMouseDown, onMouseEnter, readOnly,
 }: {
   value: string;
   onClick: (e: React.MouseEvent) => void;
   isRecent?: boolean;
   onMouseDown?: (e: React.MouseEvent) => void;
   onMouseEnter?: (e: React.MouseEvent) => void;
+  // v5.0.2 — read-only signals "your click won't do anything here", driven
+  // by the approval-workflow gate (submitted/locked/saved) and shared with
+  // the editing handlers in ScheduleTab. The visual change has to be
+  // immediate or users keep clicking and assume the app is broken.
+  readOnly?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       onMouseDown={onMouseDown}
       onMouseEnter={onMouseEnter}
+      aria-disabled={readOnly || undefined}
       className={cn(
         // v2.6 — softened transition (transform + colour only) so the cell
         // doesn't reflow text on hover; transform-gpu hint keeps the scale
         // animation buttery on the compositor.
-        "w-full h-10 border-none flex items-center justify-center font-bold text-[10px] relative select-none transform-gpu transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.04]",
+        "w-full h-10 border-none flex items-center justify-center font-bold text-[10px] relative select-none transform-gpu transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        // Hover scale only when interactive — read-only cells must NOT
+        // animate on hover, otherwise they still read as clickable.
+        !readOnly && "group-hover:scale-[1.04]",
         value
-          ? getShiftColor(value)
-          : "bg-transparent hover:bg-slate-100/70 dark:hover:bg-slate-700/40",
+          ? cn(getShiftColor(value), readOnly && "opacity-60")
+          : readOnly
+            ? "bg-slate-100/70 dark:bg-slate-800/50"
+            : "bg-transparent hover:bg-slate-100/70 dark:hover:bg-slate-700/40",
+        readOnly && "cursor-not-allowed",
         // The "just-swapped" highlight: a soft pulsing ring drawn via outline
         // so it sits over neighbouring cells without nudging the layout.
         isRecent && "outline outline-2 outline-amber-400 dark:outline-amber-300 z-10 animate-pulse"

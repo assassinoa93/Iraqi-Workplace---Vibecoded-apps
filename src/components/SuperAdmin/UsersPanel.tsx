@@ -226,6 +226,15 @@ export function UsersPanel({ companies }: Props) {
                         </span>
                       )}
                     </div>
+                    {/* v5.0.2 — display the human identity (name · position)
+                        below the email so the super-admin can spot at a glance
+                        which users still need their profile filled in. */}
+                    {(u.displayName || u.position) && (
+                      <div className="text-[10px] text-slate-600 dark:text-slate-300 truncate max-w-[260px]" title={[u.displayName, u.position].filter(Boolean).join(' · ')}>
+                        {u.displayName ?? '—'}
+                        {u.position && <span className="text-slate-400 dark:text-slate-500"> · {u.position}</span>}
+                      </div>
+                    )}
                     <div className="text-[9px] text-slate-400 dark:text-slate-500 font-mono truncate max-w-[260px]">{u.uid}</div>
                   </Td>
                   <Td>
@@ -288,6 +297,7 @@ export function UsersPanel({ companies }: Props) {
               role: form.role,
               companies: form.companies,
               displayName: form.displayName || undefined,
+              position: form.position || undefined,
               tabPerms: form.tabPerms,
             });
             await refresh();
@@ -309,6 +319,10 @@ export function UsersPanel({ companies }: Props) {
               uid: editing.uid,
               role: form.role,
               companies: form.companies,
+              // v5.0.2 — undefined would leave alone; we always pass the
+              // current value so super-admin can clear via empty input.
+              displayName: form.displayName,
+              position: form.position,
               tabPerms: form.tabPerms,
             });
             await refresh();
@@ -433,6 +447,9 @@ interface UserFormValues {
   email: string;
   password?: string;
   displayName: string;
+  // v5.0.2 — human-readable job title shown alongside displayName in the
+  // approval banner / queue (e.g. "Floor Manager — Branch A").
+  position: string;
   role: Role;
   companies: string[];
   // null means "use role default for every tab" (no override stored on
@@ -459,6 +476,7 @@ function UserFormModal({ mode, companies, initial, isSelf, onClose, onSubmit }: 
     email: initial?.email ?? '',
     password: mode === 'create' ? generateSuggestedPassword() : undefined,
     displayName: initial?.displayName ?? '',
+    position: initial?.position ?? '',
     role: (initial?.role ?? 'supervisor') as Role,
     companies: initial?.companies ?? [],
     tabPerms: initial?.tabPerms ?? null,
@@ -470,22 +488,24 @@ function UserFormModal({ mode, companies, initial, isSelf, onClose, onSubmit }: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    // Self-edit is intentionally read-only — submit just closes the modal.
-    // Defense-in-depth against DOM-tampered re-enabling of the role select:
-    // even if the user manages to set form.role to something else, we never
-    // dispatch the call. To actually demote yourself, ask another super-
-    // admin or use the Firebase Console.
-    if (isSelf) {
-      onClose();
-      return;
-    }
     if (mode === 'create' && (!form.email || !form.password)) {
       setError('Email and password are required.');
       return;
     }
     setSubmitting(true);
     try {
-      await onSubmit(form);
+      // v5.0.2 — self-edit allows changing displayName + position only.
+      // Role / companies / tabPerms are locked client-side AND any tampered
+      // values are overridden here with the original to prevent self-demotion.
+      const safeForm: UserFormValues = isSelf && initial
+        ? {
+            ...form,
+            role: (initial.role ?? form.role) as Role,
+            companies: initial.companies,
+            tabPerms: initial.tabPerms,
+          }
+        : form;
+      await onSubmit(safeForm);
     } catch (e: unknown) {
       const err = e as { message?: string };
       setError(err.message ?? 'Failed to save user');
@@ -525,16 +545,31 @@ function UserFormModal({ mode, companies, initial, isSelf, onClose, onSubmit }: 
                 required
               />
             </Field>
-            <Field label="Display name (optional)">
-              <input
-                type="text"
-                value={form.displayName}
-                onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-                className="w-full px-3 py-2 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-              />
-            </Field>
           </>
         )}
+
+        {/* v5.0.2 — Display name + position. Both editable in create AND
+            edit modes so the super-admin can fill them in retroactively for
+            users created before v5.0.2. They appear together because the
+            schedule banner / queue render them as one combined identity. */}
+        <Field label="Full name" helper="Shown in the schedule approval banner instead of the UID.">
+          <input
+            type="text"
+            value={form.displayName}
+            onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+            placeholder="e.g. Mohammed Al-Rashid"
+            className="w-full px-3 py-2 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+          />
+        </Field>
+        <Field label="Position / job title" helper="Rendered next to the name (e.g. 'Floor Manager — Branch A').">
+          <input
+            type="text"
+            value={form.position}
+            onChange={(e) => setForm({ ...form, position: e.target.value })}
+            placeholder="e.g. Floor Manager — Branch A"
+            className="w-full px-3 py-2 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+          />
+        </Field>
 
         <Field label="Role" required>
           <select
