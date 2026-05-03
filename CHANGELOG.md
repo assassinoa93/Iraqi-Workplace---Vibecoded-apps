@@ -2,6 +2,26 @@
 
 All notable changes to **Iraqi Labor Scheduler** are listed here. Versioning follows [SemVer](https://semver.org/) (MAJOR.MINOR.PATCH); each release tag (`vX.Y.Z`) on GitHub triggers a build that publishes the signed-by-hash Windows installer plus `SHA256SUMS.txt` to the matching GitHub Release.
 
+## v5.0.1 — 2026-05-03
+
+**Operational follow-up to v5.0.0** — adds the missing Firestore field-override that lets the v5.0 manager + admin dashboard widgets actually run their `collectionGroup('schedules')` queries without a console error.
+
+**Why this is needed**
+- Firestore auto-creates single-field indexes only for `COLLECTION`-scope queries. Collection-group queries (the `useApprovalQueue` hook reads schedule docs across ALL companies in one query, scoped by `allowedCompanies` client-side) need the index declared explicitly.
+- Without it, `where('approval.status', 'in', […])` against `collectionGroup('schedules')` returns a `FAILED_PRECONDITION` from Firestore with a helpful "create the index here" deep-link in the console — but the dashboard widgets just silently show "0 pending" until the link is clicked.
+
+**What changed**
+- [`firestore.indexes.json`](firestore.indexes.json) gains a `fieldOverrides` entry for `schedules` × `approval.status` covering both `COLLECTION` and `COLLECTION_GROUP` query scopes (ASCENDING + DESCENDING for COLLECTION so single-month subscribers can still order by status if they need to).
+
+**To deploy**
+```bash
+firebase deploy --only firestore:indexes
+```
+Indexes apply globally per Firebase project. After deploy the manager and admin dashboards see live submitted/locked schedules across the user's `allowedCompanies` immediately. No app rebuild required — this is a Firebase-side config change.
+
+**Compatibility**
+- All 157 tests still pass. No code changes outside the indexes file + version stamps. Pre-deploy, the dashboard widgets simply show empty queues; post-deploy they populate live with no client-side change.
+
 ## v5.0.0 — 2026-05-03
 
 **Major version. Schedule approval workflow + manager role.** v4 made the app multi-user via Firebase. v5 makes that multi-user reality safe by adding a strict two-tier validation chain on top of the schedule grid: supervisor builds → manager validates (locks) → admin finalizes (saves) → archived as the official record. Every step can EITHER proceed forward OR send the schedule back to the immediately-previous user — never skip a step. This forces every reviewer to see every change before it advances. The "saved" state is backed by an immutable snapshot doc in Firestore so the official version is preserved even if the live schedule is later reopened.
